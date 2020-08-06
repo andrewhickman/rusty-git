@@ -1,3 +1,2 @@
 pub mod repository;
-
-mod object;
+pub mod object;

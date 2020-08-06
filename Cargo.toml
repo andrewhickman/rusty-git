@@ -12,6 +12,10 @@ edition = "2018"
 [dependencies]
 thiserror = "1"
 flate2 = "1"
+hex = "0.4.2"
+sha-1 = "0.9.1"
+fs-err = "2.3.0"
 
 [dev-dependencies]
 anyhow = "1"
+structopt = "0.3.16"
