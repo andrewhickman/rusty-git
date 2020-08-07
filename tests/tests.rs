@@ -1,8 +1,7 @@
-use git2::Repository;
-use git2::Oid;
 use std::str;
+use std::str::{FromStr as _};
 use std::io;
-use std::io::Write;
+use std::io::prelude::*;
 use std::fs::File;
 use std::panic;
 use std::path::Path;
@@ -10,6 +9,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
 use tempdir::TempDir;
+use rusty_git::repository::Repository;
 
 #[test]
 fn cat_file_produces_the_same_result_as_libgit2()
@@ -22,16 +22,33 @@ fn cat_file_produces_the_same_result_as_libgit2()
         let cli_objects = git_get_objects(path);
         let target_object_id = cli_objects[0].to_owned();
 
-        let repo = Repository::init(path)
+        let lg2_repo = git2::Repository::init(path)
             .expect("failed to initialize git repository");
 
-        let odb = repo.odb()
+        let lg2_odb = lg2_repo.odb()
             .expect("failed to open object database");
 
-        let object = odb.read(Oid::from_str(&target_object_id[..]).expect("failed to read real git id using lg2"))
+        let lg2_object_id = git2::Oid::from_str(target_object_id.as_str()).expect("failed to read real git id using lg2");
+
+        let lg2_object = lg2_odb.read(lg2_object_id)
             .expect("failed to read object using lg2");
 
-        assert_eq!(b"Hello world!", object.data());
+        assert_eq!(b"Hello world!", lg2_object.data());
+
+        let repo = Repository::open(path)
+            .expect("failed to open repository with rusty_git");
+
+        let object_id = rusty_git::object::Id::from_str(target_object_id.as_str())
+            .expect("failed to read object ID using rusty_git");
+
+        let mut reader = repo.object_database().read_object(&object_id)
+            .expect("failed to object object for reading with rusty_git");
+
+        let mut object = String::new();
+        reader.read_to_string(&mut object)
+            .expect("failed to read object from reader");
+
+        assert_eq!("Hello world!", object.as_str());
     });
 }
 
@@ -109,5 +126,5 @@ fn teardown(temp: TempDir)
     let path = temp.path().to_owned();
 
     temp.close()
-        .expect(&format!("failed to clean up test directory: {}", path.display())[..]);
+        .expect(format!("failed to clean up test directory: {}", path.display()).as_str());
 }
