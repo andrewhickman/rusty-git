@@ -15,7 +15,7 @@ use rusty_git::repository::Repository;
 use rusty_git::object::Object;
 
 #[test]
-fn cat_file_produces_the_same_result_as_libgit2() {
+fn reading_objects_produces_same_result_as_libgit2() {
     run_test(|path| {
         let test_file = test_create_hello_world_file(path);
         git_add_file(path, test_file.as_path())
