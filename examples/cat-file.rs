@@ -1,8 +1,8 @@
 use std::io;
 
 use anyhow::Result;
-use rusty_git::repository::Repository;
 use rusty_git::object;
+use rusty_git::repository::Repository;
 use structopt::StructOpt;
 
 /// Print an object

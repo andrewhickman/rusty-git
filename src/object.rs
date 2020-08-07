@@ -82,7 +82,10 @@ impl ObjectDatabase {
         let (dir, file) = object_path_parts(&hex);
 
         let mut path = self.path.join(dir);
-        fs_err::create_dir(&path)?;
+        match fs_err::create_dir(&path) {
+            Err(err) if err.kind() != io::ErrorKind::AlreadyExists => return Err(err.into()),
+            _ => (),
+        }
 
         path.push(file);
         let file = match OpenOptions::new().create_new(true).write(true).open(&path) {
