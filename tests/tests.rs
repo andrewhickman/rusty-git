@@ -11,8 +11,8 @@ use std::str::FromStr as _;
 
 use tempdir::TempDir;
 
-use rusty_git::repository::Repository;
 use rusty_git::object::Object;
+use rusty_git::repository::Repository;
 
 #[test]
 fn reading_objects_produces_same_result_as_libgit2() {
