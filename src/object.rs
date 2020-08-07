@@ -1,19 +1,36 @@
+mod blob;
+mod commit;
 mod database;
+mod parser;
+mod tag;
+mod tree;
 
+pub use self::blob::Blob;
+pub use self::commit::Commit;
 pub use self::database::ObjectDatabase;
+pub use self::tag::Tag;
+pub use self::tree::Tree;
 
 use std::fmt;
-use std::io;
+use std::io::{self, BufReader, Cursor};
 use std::str::FromStr;
 
 use hex::FromHex;
 use sha1::digest::Digest;
 use sha1::Sha1;
-
 use thiserror::Error;
+
+use self::parser::{Parser, ParseError, Header};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 20]);
+
+pub enum Object {
+    Commit(Commit),
+    Tree(Tree),
+    Blob(Blob),
+    Tag(Tag),
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -35,6 +52,16 @@ pub enum Error {
 
 #[derive(Debug, Error)]
 pub enum InvalidError {}
+
+impl Object {
+    pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseError> {
+        Parser::new(BufReader::new(reader)).parse()
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
+        Parser::new(Cursor::new(bytes)).parse()
+    }
+}
 
 impl Id {
     pub fn from_hash(bytes: &[u8]) -> Self {
