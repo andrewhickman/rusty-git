@@ -124,7 +124,7 @@ fn setup() -> TempDir
 fn teardown(temp: TempDir)
 {
     let path = temp.path().to_owned();
+    let message = format!("failed to clean up test directory: {}", path.display()).as_str();
 
-    temp.close()
-        .expect(format!("failed to clean up test directory: {}", path.display()).as_str());
+    temp.close().expect(message);
 }
