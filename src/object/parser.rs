@@ -29,7 +29,7 @@ pub enum ParseError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ObjectType {
+pub enum ObjectKind {
     Commit,
     Tree,
     Blob,
@@ -38,7 +38,7 @@ pub enum ObjectType {
 
 #[derive(Debug, PartialEq)]
 pub struct Header {
-    pub ty: ObjectType,
+    pub kind: ObjectKind,
     pub len: usize,
 }
 
@@ -52,31 +52,31 @@ impl<R: BufRead> Parser<R> {
 
     pub fn parse(mut self) -> Result<Object, ParseError> {
         let header = self.parse_header()?;
-        match header.ty {
-            ObjectType::Blob => Blob::parse(self, &header).map(Object::Blob),
-            ObjectType::Commit => Commit::parse(self, &header).map(Object::Commit),
-            ObjectType::Tree => Tree::parse(self, &header).map(Object::Tree),
-            ObjectType::Tag => Tag::parse(self, &header).map(Object::Tag),
+        match header.kind {
+            ObjectKind::Blob => Blob::parse(self, &header).map(Object::Blob),
+            ObjectKind::Commit => Commit::parse(self, &header).map(Object::Commit),
+            ObjectKind::Tree => Tree::parse(self, &header).map(Object::Tree),
+            ObjectKind::Tag => Tag::parse(self, &header).map(Object::Tag),
         }
     }
 
     fn parse_header(&mut self) -> Result<Header, ParseError> {
-        let type_bytes = self.consume_until(b' ')?.ok_or(ParseError::InvalidHeader)?;
-        let ty = match type_bytes {
-            b"commit" => ObjectType::Commit,
-            b"tree" => ObjectType::Tree,
-            b"blob" => ObjectType::Blob,
-            b"tag" => ObjectType::Tag,
+        let kind = self.consume_until(b' ')?.ok_or(ParseError::InvalidHeader)?;
+        let kind = match kind {
+            b"commit" => ObjectKind::Commit,
+            b"tree" => ObjectKind::Tree,
+            b"blob" => ObjectKind::Blob,
+            b"tag" => ObjectKind::Tag,
             _ => return Err(ParseError::InvalidLength),
         };
 
-        let size_bytes = self
+        let len = self
             .consume_until(b'\0')?
             .ok_or(ParseError::InvalidHeader)?;
-        let size_str = str::from_utf8(&size_bytes).map_err(|_| ParseError::InvalidHeader)?;
-        let len = usize::from_str(&size_str).map_err(|_| ParseError::InvalidLength)?;
+        let len = str::from_utf8(&len).map_err(|_| ParseError::InvalidHeader)?;
+        let len = usize::from_str(&len).map_err(|_| ParseError::InvalidLength)?;
 
-        Ok(Header { ty, len })
+        Ok(Header { kind, len })
     }
 
     pub fn reserve(&mut self, len: usize) {
@@ -110,7 +110,7 @@ fn test_parse_header() {
     assert_eq!(
         parser.parse_header().unwrap(),
         Header {
-            ty: ObjectType::Tree,
+            kind: ObjectKind::Tree,
             len: 3,
         }
     );
