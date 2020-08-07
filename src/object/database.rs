@@ -6,7 +6,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
-use crate::object::{Error, Id};
+use crate::object::{Error, Id, Object};
 
 #[derive(Debug)]
 pub struct ObjectDatabase {
@@ -31,6 +31,10 @@ impl ObjectDatabase {
             }
             Err(err) => Err(err.into()),
         }
+    }
+
+    pub fn parse_object(&self, id: &Id) -> Result<Object, Error> {
+        Ok(Object::from_reader(self.read_object(id)?)?)
     }
 
     pub fn write_object(&self, bytes: &[u8]) -> Result<(), Error> {

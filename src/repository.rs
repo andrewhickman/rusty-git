@@ -20,22 +20,17 @@ pub struct Repository {
 pub enum OpenError {
     #[error("repository not found at `{0}`")]
     NotFound(PathBuf),
+    #[error("error in object database")]
+    Object(
+        #[source]
+        #[from]
+        object::Error,
+    ),
     #[error("io error opening repository")]
     Io(
         #[source]
         #[from]
         io::Error,
-    ),
-}
-
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum InvalidError {
-    #[error("objects database is invalid")]
-    ObjectDatabase(
-        #[source]
-        #[from]
-        object::InvalidError,
     ),
 }
 

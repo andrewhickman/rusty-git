@@ -1,6 +1,6 @@
 use std::io::BufRead;
 
-use crate::object::{Parser, ParseError, Header};
+use crate::object::{Header, ParseError, Parser};
 
 pub struct Commit;
 

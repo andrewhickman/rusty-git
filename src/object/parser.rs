@@ -1,9 +1,9 @@
-use std::str::{self, FromStr};
 use std::io::{self, BufRead};
+use std::str::{self, FromStr};
 
 use thiserror::Error;
 
-use crate::object::{Object, Blob, Tag, Commit, Tree};
+use crate::object::{Blob, Commit, Object, Tag, Tree};
 
 pub struct Parser<R> {
     buffer: Vec<u8>,
@@ -16,10 +16,16 @@ pub enum ParseError {
     UnknownType,
     #[error("object header is malformed")]
     InvalidHeader,
-    #[error("object size is invalid")]
-    InvalidSize,
+    #[error("object size is too large")]
+    InvalidLength,
+    #[error("object size header doesn't match actual size")]
+    LengthMismatch,
     #[error("io error reading object")]
-    Io(#[from]#[source] io::Error),
+    Io(
+        #[from]
+        #[source]
+        io::Error,
+    ),
 }
 
 #[derive(Debug, PartialEq)]
@@ -61,12 +67,14 @@ impl<R: BufRead> Parser<R> {
             b"tree" => ObjectType::Tree,
             b"blob" => ObjectType::Blob,
             b"tag" => ObjectType::Tag,
-            _ => return Err(ParseError::InvalidSize),
+            _ => return Err(ParseError::InvalidLength),
         };
 
-        let size_bytes = self.consume_until(b'\0')?.ok_or(ParseError::InvalidHeader)?;
+        let size_bytes = self
+            .consume_until(b'\0')?
+            .ok_or(ParseError::InvalidHeader)?;
         let size_str = str::from_utf8(&size_bytes).map_err(|_| ParseError::InvalidHeader)?;
-        let len = usize::from_str(&size_str).map_err(|_| ParseError::InvalidSize)?;
+        let len = usize::from_str(&size_str).map_err(|_| ParseError::InvalidLength)?;
 
         Ok(Header { ty, len })
     }
@@ -99,9 +107,12 @@ fn test_parse_header() {
     let object = b"tree 3\0abc";
 
     let mut parser = Parser::new(io::Cursor::new(object));
-    assert_eq!(parser.parse_header().unwrap(), Header {
-        ty: ObjectType::Tree,
-        len: 3,
-    });
+    assert_eq!(
+        parser.parse_header().unwrap(),
+        Header {
+            ty: ObjectType::Tree,
+            len: 3,
+        }
+    );
     assert_eq!(parser.read_to_end().unwrap(), b"abc");
 }

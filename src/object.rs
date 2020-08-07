@@ -20,7 +20,7 @@ use sha1::digest::Digest;
 use sha1::Sha1;
 use thiserror::Error;
 
-use self::parser::{Parser, ParseError, Header};
+use self::parser::{Header, ParseError, Parser};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; 20]);
@@ -37,10 +37,10 @@ pub enum Error {
     #[error("object `{0}` not found")]
     ObjectNotFound(Box<Id>),
     #[error("the object database is invalid")]
-    Invalid(
+    InvalidObject(
         #[source]
         #[from]
-        InvalidError,
+        ParseError,
     ),
     #[error("io error in object database")]
     Io(
@@ -49,9 +49,6 @@ pub enum Error {
         io::Error,
     ),
 }
-
-#[derive(Debug, Error)]
-pub enum InvalidError {}
 
 impl Object {
     pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseError> {
