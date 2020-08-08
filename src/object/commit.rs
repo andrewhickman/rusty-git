@@ -126,12 +126,12 @@ impl<'a> Signature<'a> {
         self.captures.get(2).unwrap().as_bytes().as_bstr()
     }
 
-    pub fn timestamp(&self) -> &'a BStr {
-        self.captures.get(3).unwrap().as_bytes().as_bstr()
+    pub fn timestamp(&self) -> Option<&'a BStr> {
+        self.captures.get(3).map(|mat| mat.as_bytes().as_bstr())
     }
 
-    pub fn timezone(&self) -> &'a BStr {
-        self.captures.get(4).unwrap().as_bytes().as_bstr()
+    pub fn timezone(&self) -> Option<&'a BStr> {
+        self.captures.get(4).map(|mat| mat.as_bytes().as_bstr())
     }
 }
 
@@ -231,9 +231,11 @@ message".to_vec(),
         assert_eq!(commit.parents().collect::<Vec<_>>(), &[Id::from_str("befc2587746bb7aeb8588788caeaeadd3eb06e4b").unwrap()]);
         assert_eq!(commit.author().name(), "Andrew Hickman");
         assert_eq!(commit.author().email(), "me@andrewhickman.dev");
-        assert_eq!(commit.author().timestamp(), "1596907199");
-        assert_eq!(commit.author().timezone(), "+0100");
+        assert_eq!(commit.author().timestamp(), Some(b"1596907199".as_bstr()));
+        assert_eq!(commit.author().timezone(), Some(b"+0100".as_bstr()));
         assert_eq!(commit.committer().name(), "Andrew Hickman");
+        assert_eq!(commit.committer().timestamp(), None);
+        assert_eq!(commit.committer().timezone(), None);
         assert_eq!(commit.encoding(), Some(b"UTF-8".as_bstr()));
         assert_eq!(commit.message(), "message");
     }
