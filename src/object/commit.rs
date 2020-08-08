@@ -3,6 +3,8 @@ use std::io::Read;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
+use regex::bytes::Regex;
+use once_cell::sync::Lazy;
 
 use crate::object::{Id, ParseError, Parser, ID_HEX_LEN};
 
@@ -14,6 +16,10 @@ pub struct Commit {
     committer: Range<usize>,
     encoding: Option<Range<usize>>,
     message: usize,
+}
+
+pub struct Signature<'a> {
+    raw: &'a [u8],
 }
 
 impl Commit {
@@ -88,6 +94,22 @@ impl Commit {
 
     pub fn message(&self) -> &BStr {
         self.data[self.message..].as_bstr()
+    }
+}
+
+impl<'a> Author<'a> {
+    fn regex() -> &'static Regex {
+        const PADDING_CHARS: &[u8] = "[\x00-\x32.,:;<>\"\\\\']*";
+
+        static REGEX: Lazy<Regex> = Lazy::new(||
+            Regex::new(format!(r"{:pad$}(.*){:pad$}<{:pad$}(.*){:pad$}> (\d+) ([+\-])(\d+)", pad = PADDING_CHARS)).unwrap()
+        );
+
+        &*REGEX
+    }
+
+    fn is_valid(input: &[u8]) -> bool {
+        regex.is_match(input)
     }
 }
 

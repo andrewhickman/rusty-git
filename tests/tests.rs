@@ -191,10 +191,13 @@ fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
 
 fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
     str::from_utf8(
-        git_log(cwd, &[format!("--format={}", format).as_str(), "--date=raw"])
-            .unwrap()
-            .stdout
-            .as_slice(),
+        git_log(
+            cwd,
+            &[format!("--format={}", format).as_str(), "--date=raw"],
+        )
+        .unwrap()
+        .stdout
+        .as_slice(),
     )
     .unwrap()
     .trim()
