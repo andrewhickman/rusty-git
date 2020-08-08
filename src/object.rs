@@ -11,10 +11,10 @@ pub use self::database::ObjectDatabase;
 pub use self::tag::Tag;
 pub use self::tree::{Tree, TreeEntry};
 
+use std::convert::TryInto;
 use std::fmt;
 use std::io::{self, Cursor};
 use std::str::FromStr;
-use std::convert::TryInto;
 
 use hex::FromHex;
 use sha1::digest::Digest;
@@ -24,6 +24,7 @@ use thiserror::Error;
 use self::parser::{ParseError, Parser};
 
 pub const ID_LEN: usize = 20;
+pub const ID_HEX_LEN: usize = ID_LEN * 2;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; ID_LEN]);

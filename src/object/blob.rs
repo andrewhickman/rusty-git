@@ -1,5 +1,5 @@
-use std::io::Read;
 use std::fmt;
+use std::io::Read;
 
 use bstr::{BStr, ByteSlice};
 
@@ -26,8 +26,6 @@ impl Blob {
 
 impl fmt::Debug for Blob {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_struct("Blob")
-            .field("data", &self.data())
-            .finish()
+        f.debug_struct("Blob").field("data", &self.data()).finish()
     }
 }

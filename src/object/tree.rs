@@ -1,10 +1,10 @@
-use std::io::Read;
 use std::fmt;
+use std::io::Read;
 use std::str;
 
 use bstr::{BStr, ByteSlice};
 
-use crate::object::{ParseError, Parser, ID_LEN, Id};
+use crate::object::{Id, ParseError, Parser, ID_LEN};
 
 pub struct Tree {
     data: Vec<u8>,
@@ -34,17 +34,23 @@ impl Tree {
             let mode = u16::from_str_radix(mode, 8).map_err(|_| ParseError::InvalidTree)?;
 
             let filename_start = parser.pos();
-            let filename_end= filename_start + parser
-                .consume_until(0)
-                .ok_or(ParseError::InvalidTree)?
-                .len();
+            let filename_end = filename_start
+                + parser
+                    .consume_until(0)
+                    .ok_or(ParseError::InvalidTree)?
+                    .len();
 
             let id = parser.pos();
             if !parser.advance(ID_LEN) {
                 return Err(ParseError::InvalidTree);
             }
 
-            entries.push(TreeEntryRaw { mode, filename_start, filename_end, id })
+            entries.push(TreeEntryRaw {
+                mode,
+                filename_start,
+                filename_end,
+                id,
+            })
         }
 
         entries.shrink_to_fit();
@@ -55,12 +61,10 @@ impl Tree {
     }
 
     pub fn entries<'a>(&'a self) -> impl ExactSizeIterator<Item = TreeEntry<'a>> {
-        self.entries.iter()
-            .copied()
-            .map(move |entry| TreeEntry {
-                data: &self.data,
-                entry,
-            })
+        self.entries.iter().copied().map(move |entry| TreeEntry {
+            data: &self.data,
+            entry,
+        })
     }
 }
 
@@ -80,9 +84,7 @@ impl<'a> TreeEntry<'a> {
 
 impl fmt::Debug for Tree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.debug_list()
-            .entries(self.entries())
-            .finish()
+        f.debug_list().entries(self.entries()).finish()
     }
 }
 

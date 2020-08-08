@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::str::{self, FromStr};
 
-use memchr::{memchr};
+use memchr::memchr;
 use thiserror::Error;
 
 use crate::object::{Blob, Commit, Object, Tag, Tree};
@@ -26,6 +26,8 @@ pub enum ParseError {
     LengthMismatch,
     #[error("a tree object is invalid")]
     InvalidTree,
+    #[error("a commit object is invalid")]
+    InvalidCommit,
     #[error("io error reading object")]
     Io(
         #[from]
@@ -61,12 +63,16 @@ impl<R: Read> Parser<R> {
         self.pos
     }
 
+    pub fn bytes(&self) -> &[u8] {
+        &self.buffer
+    }
+
     pub fn remaining(&self) -> usize {
-        self.buffer.len() - self.pos
+        self.remaining_buffer().len()
     }
 
     pub fn finished(&self) -> bool {
-        self.pos == self.buffer.len()
+        self.remaining_buffer().is_empty()
     }
 
     pub fn advance(&mut self, len: usize) -> bool {
@@ -119,15 +125,28 @@ impl<R: Read> Parser<R> {
         self.buffer
     }
 
+    pub fn consume_bytes(&mut self, bytes: &[u8]) -> bool {
+        if self.remaining_buffer().starts_with(bytes) {
+            self.pos += bytes.len();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<&'a [u8]> {
-        match memchr(ch, &self.buffer[self.pos..]) {
+        match memchr(ch, self.remaining_buffer()) {
             Some(ch_pos) => {
-                let result = &self.buffer[self.pos..(self.pos + ch_pos)];
+                let result = &self.buffer[self.pos..][..ch_pos];
                 self.pos += ch_pos + 1;
                 Some(result)
             }
             None => None,
         }
+    }
+
+    fn remaining_buffer(&self) -> &[u8] {
+        &self.buffer[self.pos..]
     }
 
     fn read_header(&mut self) -> Result<usize, ParseError> {
