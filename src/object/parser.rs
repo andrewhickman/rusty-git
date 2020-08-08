@@ -122,9 +122,9 @@ impl<R: Read> Parser<R> {
                 Ok(0) => return Err(ParseError::InvalidHeader),
                 Ok(read) => {
                     let new_len = len + read;
-                    if let Some(end) = memrchr(b'\0', &self.buffer[len..new_len]) {
+                    if let Some(header_end) = memrchr(b'\0', &self.buffer[len..new_len]) {
                         self.buffer.truncate(new_len);
-                        return Ok(end);
+                        return Ok(len + header_end);
                     }
                     len = new_len;
                 }
