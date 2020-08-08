@@ -1,11 +1,12 @@
 use std::io::Read;
 
-use crate::object::{Header, ParseError, Parser};
+use crate::object::{ParseError, Parser};
 
+#[derive(Debug)]
 pub struct Commit;
 
 impl Commit {
-    pub fn parse<R: Read>(mut parser: Parser<R>, header: &Header) -> Result<Self, ParseError> {
+    pub fn parse<R: Read>(_parser: Parser<R>) -> Result<Self, ParseError> {
         todo!()
     }
 }

@@ -14,17 +14,21 @@ pub use self::tree::Tree;
 use std::fmt;
 use std::io::{self, Cursor};
 use std::str::FromStr;
+use std::convert::TryInto;
 
 use hex::FromHex;
 use sha1::digest::Digest;
 use sha1::Sha1;
 use thiserror::Error;
 
-use self::parser::{Header, ParseError, Parser};
+use self::parser::{ParseError, Parser};
+
+pub const ID_LEN: usize = 20;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id([u8; 20]);
+pub struct Id([u8; ID_LEN]);
 
+#[derive(Debug)]
 pub enum Object {
     Commit(Commit),
     Tree(Tree),
@@ -61,6 +65,10 @@ impl Object {
 }
 
 impl Id {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Id(bytes.try_into().expect("invalid length for id"))
+    }
+
     pub fn from_hash(bytes: &[u8]) -> Self {
         Id(Sha1::new().chain(bytes).finalize().into())
     }

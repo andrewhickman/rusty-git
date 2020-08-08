@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::str::{self, FromStr};
 
-use memchr::{memchr, memrchr};
+use memchr::{memchr};
 use thiserror::Error;
 
 use crate::object::{Blob, Commit, Object, Tag, Tree};
@@ -24,6 +24,8 @@ pub enum ParseError {
     InvalidLength,
     #[error("object size header doesn't match actual size")]
     LengthMismatch,
+    #[error("a tree object is invalid")]
+    InvalidTree,
     #[error("io error reading object")]
     Io(
         #[from]
@@ -59,16 +61,33 @@ impl<R: Read> Parser<R> {
         self.pos
     }
 
+    pub fn remaining(&self) -> usize {
+        self.buffer.len() - self.pos
+    }
+
+    pub fn finished(&self) -> bool {
+        self.pos == self.buffer.len()
+    }
+
+    pub fn advance(&mut self, len: usize) -> bool {
+        if self.remaining() < len {
+            false
+        } else {
+            self.pos += len;
+            true
+        }
+    }
+
     pub fn parse(mut self) -> Result<Object, ParseError> {
         let header = self.parse_header()?;
 
         self.read_body(&header)?;
 
         match header.kind {
-            ObjectKind::Blob => Blob::parse(self, &header).map(Object::Blob),
-            ObjectKind::Commit => Commit::parse(self, &header).map(Object::Commit),
-            ObjectKind::Tree => Tree::parse(self, &header).map(Object::Tree),
-            ObjectKind::Tag => Tag::parse(self, &header).map(Object::Tag),
+            ObjectKind::Blob => Blob::parse(self).map(Object::Blob),
+            ObjectKind::Commit => Commit::parse(self).map(Object::Commit),
+            ObjectKind::Tree => Tree::parse(self).map(Object::Tree),
+            ObjectKind::Tag => Tag::parse(self).map(Object::Tag),
         }
     }
 
@@ -101,10 +120,10 @@ impl<R: Read> Parser<R> {
     }
 
     pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<&'a [u8]> {
-        match memchr(ch, self.buffer.as_slice()) {
+        match memchr(ch, &self.buffer[self.pos..]) {
             Some(ch_pos) => {
-                let result = &self.buffer[self.pos..ch_pos];
-                self.pos = ch_pos + 1;
+                let result = &self.buffer[self.pos..(self.pos + ch_pos)];
+                self.pos += ch_pos + 1;
                 Some(result)
             }
             None => None,
@@ -122,7 +141,7 @@ impl<R: Read> Parser<R> {
                 Ok(0) => return Err(ParseError::InvalidHeader),
                 Ok(read) => {
                     let new_len = len + read;
-                    if let Some(header_end) = memrchr(b'\0', &self.buffer[len..new_len]) {
+                    if let Some(header_end) = memchr(b'\0', &self.buffer[len..new_len]) {
                         self.buffer.truncate(new_len);
                         return Ok(len + header_end);
                     }
@@ -178,13 +197,7 @@ fn test_parse_header() {
             len: 3,
         }
     );
-    assert!(
-        parse_header(b"commit 333333333333333333333\0abc").is_err(),
-    );
-    assert!(
-        parse_header(b"blob 3").is_err(),
-    );
-    assert!(
-        parse_header(b"blob3\0abc").is_err(),
-    );
+    assert!(parse_header(b"commit 333333333333333333333\0abc").is_err(),);
+    assert!(parse_header(b"blob 3").is_err(),);
+    assert!(parse_header(b"blob3\0abc").is_err(),);
 }

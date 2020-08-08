@@ -1,6 +1,9 @@
 use std::io::Read;
+use std::fmt;
 
-use crate::object::{Header, ParseError, Parser};
+use bstr::{BStr, ByteSlice};
+
+use crate::object::{ParseError, Parser};
 
 pub struct Blob {
     data: Vec<u8>,
@@ -8,7 +11,7 @@ pub struct Blob {
 }
 
 impl Blob {
-    pub fn parse<R: Read>(mut parser: Parser<R>, header: &Header) -> Result<Self, ParseError> {
+    pub fn parse<R: Read>(parser: Parser<R>) -> Result<Self, ParseError> {
         let pos = parser.pos();
         Ok(Blob {
             data: parser.finish(),
@@ -16,7 +19,15 @@ impl Blob {
         })
     }
 
-    pub fn data(&self) -> &[u8] {
-        &self.data[self.pos..]
+    pub fn data(&self) -> &BStr {
+        self.data[self.pos..].as_bstr()
+    }
+}
+
+impl fmt::Debug for Blob {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Blob")
+            .field("data", &self.data())
+            .finish()
     }
 }

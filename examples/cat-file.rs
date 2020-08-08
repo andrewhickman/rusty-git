@@ -1,5 +1,3 @@
-use std::io;
-
 use anyhow::Result;
 use rusty_git::object;
 use rusty_git::repository::Repository;
@@ -17,8 +15,8 @@ pub fn main() -> Result<()> {
     let args = Args::from_args();
     let repo = Repository::open(".")?;
 
-    let mut reader = repo.object_database().read_object(&args.id)?;
+    let object = repo.object_database().parse_object(&args.id)?;
 
-    io::copy(&mut reader, &mut io::stdout().lock())?;
+    println!("{:#?}", object);
     Ok(())
 }

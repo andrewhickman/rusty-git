@@ -16,6 +16,7 @@ hex = "0.4.2"
 sha-1 = "0.9.1"
 fs-err = "2.3.0"
 memchr = "2.3.3"
+bstr = "0.2.13"
 
 [dev-dependencies]
 anyhow = "1"
