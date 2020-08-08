@@ -12,7 +12,7 @@ pub use self::tag::Tag;
 pub use self::tree::Tree;
 
 use std::fmt;
-use std::io::{self, BufReader, Cursor};
+use std::io::{self, Cursor};
 use std::str::FromStr;
 
 use hex::FromHex;
@@ -52,7 +52,7 @@ pub enum Error {
 
 impl Object {
     pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseError> {
-        Parser::new(BufReader::new(reader)).parse()
+        Parser::new(reader).parse()
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {

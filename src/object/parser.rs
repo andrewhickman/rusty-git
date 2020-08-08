@@ -117,7 +117,7 @@ impl<R: Read> Parser<R> {
         self.buffer.resize(MAX_HEADER_LEN, 0);
 
         let mut len = 0;
-        loop {
+        while !self.buffer[len..].is_empty() {
             match self.reader.read(&mut self.buffer[len..]) {
                 Ok(0) => return Err(ParseError::InvalidHeader),
                 Ok(read) => {
@@ -132,6 +132,8 @@ impl<R: Read> Parser<R> {
                 Err(err) => return Err(err.into()),
             }
         }
+
+        return Err(ParseError::InvalidHeader);
     }
 
     fn read_body(&mut self, header: &Header) -> Result<(), ParseError> {
@@ -158,14 +160,31 @@ fn test_max_header_len() {
 
 #[test]
 fn test_parse_header() {
-    let object = b"tree 3\0abc";
+    fn parse_header(bytes: &[u8]) -> Result<Header, ParseError> {
+        Parser::new(io::Cursor::new(bytes)).parse_header()
+    }
 
-    let mut parser = Parser::new(io::Cursor::new(object));
     assert_eq!(
-        parser.parse_header().unwrap(),
+        parse_header(b"tree 3\0abc").unwrap(),
         Header {
             kind: ObjectKind::Tree,
             len: 3,
         }
+    );
+    assert_eq!(
+        parse_header(b"blob 3\0abc").unwrap(),
+        Header {
+            kind: ObjectKind::Blob,
+            len: 3,
+        }
+    );
+    assert!(
+        parse_header(b"commit 333333333333333333333\0abc").is_err(),
+    );
+    assert!(
+        parse_header(b"blob 3").is_err(),
+    );
+    assert!(
+        parse_header(b"blob3\0abc").is_err(),
     );
 }
