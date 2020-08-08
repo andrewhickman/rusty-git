@@ -6,7 +6,7 @@
 [di]: https://docs.rs/rusty-git/badge.svg
 [dl]: https://docs.rs/rusty-git/
 
-[ai]: https://github.com/andrewhickman/rusty-git/workflows/Rust/badge.svg
+[ai]: https://github.com/andrewhickman/rusty-git/workflows/Build/badge.svg
 [al]: https://github.com/andrewhickman/rusty-git/actions
 
 # rusty-git
