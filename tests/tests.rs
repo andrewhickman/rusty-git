@@ -85,10 +85,10 @@ fn reading_commit_produces_same_result_as_libgit2() {
             _ => panic!("expected object to be a commit"),
         };
 
-        assert_eq!(git_author_name, commit.author().name().unwrap());
-        assert_eq!(git_author_email, commit.author().email().unwrap());
-        assert_eq!(git_committer_name, commit.committer().name().unwrap());
-        assert_eq!(git_committer_email, commit.committer().email().unwrap());
+        assert_eq!(git_author_name, commit.author().name());
+        assert_eq!(git_author_email, commit.author().email());
+        assert_eq!(git_committer_name, commit.committer().name());
+        assert_eq!(git_committer_email, commit.committer().email());
     });
 }
 
@@ -191,10 +191,13 @@ fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
 
 fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
     str::from_utf8(
-        git_log(cwd, &[format!("--format={}", format).as_str(), "--date=raw"])
-            .unwrap()
-            .stdout
-            .as_slice(),
+        git_log(
+            cwd,
+            &[format!("--format={}", format).as_str(), "--date=raw"],
+        )
+        .unwrap()
+        .stdout
+        .as_slice(),
     )
     .unwrap()
     .trim()
