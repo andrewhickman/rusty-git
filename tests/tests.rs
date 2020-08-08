@@ -12,7 +12,7 @@ use std::str::FromStr as _;
 
 use tempdir::TempDir;
 
-use rusty_git::object::Object;
+use rusty_git::object::{TreeEntry, Object};
 use rusty_git::repository::Repository;
 
 #[test]
@@ -88,6 +88,51 @@ fn reading_commit_produces_same_result_as_libgit2() {
         assert!(expected_commit_pattern.is_match(commit));
 
         assert_eq!(lg2_commit, commit);
+    });
+}
+
+#[test]
+fn reading_tree_produces_same_result_as_libgit2() {
+    run_test(|path| {
+        let test_file = test_create_file(path, b"Hello world!");
+
+        git_add_file(path, test_file.as_path())
+            .expect("failed to add hello world file to git to create test object");
+
+        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+
+        let cli_objects = git_get_objects(path);
+
+        let lg2_repo = git2::Repository::init(path).expect("failed to initialize git repository");
+        let lg2_head = lg2_repo.head().unwrap();
+        let lg2_tree = lg2_head.peel_to_tree().unwrap();
+
+        let lg2_tree_id = lg2_tree.id().to_string();
+        let mut lg2_blob_id = String::new();
+
+        lg2_tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
+            // There is only one thing in this tree, and we know it's a blob.
+            lg2_blob_id = entry.id().to_string();
+            git2::TreeWalkResult::Ok
+        }).unwrap();
+        
+        assert!(cli_objects.contains(&lg2_tree_id));
+        assert!(cli_objects.contains(&lg2_blob_id));
+
+        let repo = Repository::open(path).expect("failed to open repository with rusty_git");
+        let target_tree_id = rusty_git::object::Id::from_str(lg2_tree_id.as_str()).expect("failed to read tree ID using rusty_git");
+        let tree_object = repo.object_database().parse_object(&target_tree_id).expect("failed to parse tree object with rusty git");
+
+        let tree = match tree_object {
+            Object::Tree(tree) => tree,
+            _ => panic!("expected object to be a tree")
+        };
+
+        let tree_id = tree.id().to_string();
+        let blob_id = tree.entries().collect::<Vec<TreeEntry>>()[0].id().to_string();
+
+        assert_eq!(lg2_tree_id, tree_id);
+        assert_eq!(lg2_blob_id, blob_id);
     });
 }
 
