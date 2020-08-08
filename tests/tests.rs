@@ -15,67 +15,140 @@ use rusty_git::object::Object;
 use rusty_git::repository::Repository;
 
 #[test]
-fn reading_objects_produces_same_result_as_libgit2() {
+fn reading_file_produces_same_result_as_libgit2() {
     run_test(|path| {
-        let test_file = test_create_hello_world_file(path);
+        let test_file = test_create_file(path, b"Hello world!");
+
         git_add_file(path, test_file.as_path())
             .expect("failed to add hello world file to git to create test object");
 
         let cli_objects = git_get_objects(path);
         let target_object_id = cli_objects[0].to_owned();
 
-        let lg2_repo = git2::Repository::init(path).expect("failed to initialize git repository");
+        let lg2_object = test_libgit2_read_object(path, target_object_id.as_str());
+        assert_eq!(b"Hello world!", lg2_object.as_slice());
 
-        let lg2_odb = lg2_repo.odb().expect("failed to open object database");
-
-        let lg2_object_id = git2::Oid::from_str(target_object_id.as_str())
-            .expect("failed to read real git id using lg2");
-
-        let lg2_object = lg2_odb
-            .read(lg2_object_id)
-            .expect("failed to read object using lg2");
-
-        assert_eq!(b"Hello world!", lg2_object.data());
-
-        let repo = Repository::open(path).expect("failed to open repository with rusty_git");
-
-        let object_id = rusty_git::object::Id::from_str(target_object_id.as_str())
-            .expect("failed to read object ID using rusty_git");
-
-        let object = repo
-            .object_database()
-            .parse_object(&object_id)
-            .expect("failed to get object with rusty_git");
-        let blob = match object {
-            Object::Blob(blob) => blob,
-            _ => panic!("expected object to be a blob"),
-        };
-
-        assert_eq!(b"Hello world!", blob.data());
+        let object = test_rusty_git_read_object(path, target_object_id.as_str());
+        assert_eq!(b"Hello world!", object.as_slice());
     });
 }
 
-fn test_create_hello_world_file(path: &Path) -> PathBuf {
+#[test]
+fn reading_commit_produces_same_result_as_libgit2() {
+    run_test(|path| {
+        let test_file = test_create_file(path, b"Hello world!");
+
+        git_add_file(path, test_file.as_path())
+            .expect("failed to add hello world file to git to create test object");
+
+        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+
+        let cli_objects = git_get_objects(path);
+        let target_object_id = cli_objects[2].to_owned();
+
+        let expected_commit_message = String::from_utf8(
+            git_log(
+                path,
+                &[
+                    "-1",
+                    format!("--format=tree {}%nauthor %an <%ae> %ad%ncommitter %cn <%ce> %cd%n%n%B", cli_objects[1]).as_str(),
+                    "--date=raw",
+                ],
+            )
+            .expect("failed to get latest git commit message")
+            .stdout
+            .split_last()
+            .unwrap()
+            .1
+            .to_vec(),
+        )
+        .expect("failed to parse commit message as utf8");
+
+        let lg2_object = test_libgit2_read_object(path, target_object_id.as_str());
+        assert_eq!(
+            expected_commit_message,
+            String::from_utf8(lg2_object).expect("failed to parse libgit2 commit object as utf8")
+        );
+
+        let object = test_rusty_git_read_object(path, target_object_id.as_str());
+        assert_eq!(
+            expected_commit_message,
+            String::from_utf8(object).expect("failed to parse rusty git commit object as utf8")
+        );
+    });
+}
+
+fn test_rusty_git_read_object(cwd: &Path, id: &str) -> Vec<u8> {
+    let repo = Repository::open(cwd).expect("failed to open repository with rusty_git");
+
+    let object_id =
+        rusty_git::object::Id::from_str(id).expect("failed to read object ID using rusty_git");
+
+    let object = repo
+        .object_database()
+        .parse_object(&object_id)
+        .expect("failed to get object with rusty_git");
+
+    let blob = match object {
+        Object::Blob(blob) => blob,
+        _ => panic!("expected object to be a blob"),
+    };
+
+    blob.data().to_vec()
+}
+
+fn test_libgit2_read_object(cwd: &Path, id: &str) -> Vec<u8> {
+    let repo = git2::Repository::init(cwd).expect("failed to initialize git repository");
+
+    let odb = repo.odb().expect("failed to open object database");
+
+    let object_id = git2::Oid::from_str(id).expect("failed to read real git id using lg2");
+
+    let object = odb
+        .read(object_id)
+        .expect("failed to read object using lg2");
+
+    object.data().to_vec()
+}
+
+fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
     let file_name = "hello_world.txt";
     let mut file = File::create(path.join(file_name)).expect("failed to create hello world file");
 
-    file.write_all(b"Hello world!")
+    file.write_all(content)
         .expect("failed to write to hello world file");
 
     path.join(file_name)
 }
 
-fn git_add_file(path: &Path, file: &Path) -> Result<Output, io::Error> {
+fn git_log(cwd: &Path, args: &[&str]) -> Result<Output, io::Error> {
     Command::new("git")
-        .current_dir(path)
+        .current_dir(cwd)
+        .arg("log")
+        .args(args)
+        .output()
+}
+
+fn git_commit(cwd: &Path, message: &str) -> Result<Output, io::Error> {
+    Command::new("git")
+        .current_dir(cwd)
+        .arg("commit")
+        .arg("-m")
+        .arg(message)
+        .output()
+}
+
+fn git_add_file(cwd: &Path, file: &Path) -> Result<Output, io::Error> {
+    Command::new("git")
+        .current_dir(cwd)
         .arg("add")
         .arg(file)
         .output()
 }
 
-fn git_get_objects(path: &Path) -> Vec<String> {
+fn git_get_objects(cwd: &Path) -> Vec<String> {
     let output = Command::new("git")
-        .current_dir(path)
+        .current_dir(cwd)
         .arg("cat-file")
         .arg("--batch-check")
         .arg("--batch-all-objects")
@@ -91,8 +164,8 @@ fn git_get_objects(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn git_init(path: &Path) -> Result<Output, io::Error> {
-    Command::new("git").current_dir(path).arg("init").output()
+fn git_init(cwd: &Path) -> Result<Output, io::Error> {
+    Command::new("git").current_dir(cwd).arg("init").output()
 }
 
 fn run_test<T>(test: T)
