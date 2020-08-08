@@ -4,7 +4,7 @@ use std::str::{self, FromStr};
 use memchr::memchr;
 use thiserror::Error;
 
-use crate::object::{Blob, Commit, Object, Tag, Tree};
+use crate::object::{Blob, Commit, ObjectData, Tag, Tree};
 
 const MAX_HEADER_LEN: usize = 28;
 
@@ -84,16 +84,16 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn parse(mut self) -> Result<Object, ParseError> {
+    pub fn parse(mut self) -> Result<ObjectData, ParseError> {
         let header = self.parse_header()?;
 
         self.read_body(&header)?;
 
         match header.kind {
-            ObjectKind::Blob => Blob::parse(self).map(Object::Blob),
-            ObjectKind::Commit => Commit::parse(self).map(Object::Commit),
-            ObjectKind::Tree => Tree::parse(self).map(Object::Tree),
-            ObjectKind::Tag => Tag::parse(self).map(Object::Tag),
+            ObjectKind::Blob => Blob::parse(self).map(ObjectData::Blob),
+            ObjectKind::Commit => Commit::parse(self).map(ObjectData::Commit),
+            ObjectKind::Tree => Tree::parse(self).map(ObjectData::Tree),
+            ObjectKind::Tag => Tag::parse(self).map(ObjectData::Tag),
         }
     }
 

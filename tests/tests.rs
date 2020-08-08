@@ -1,4 +1,3 @@
-use regex::Regex;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -12,7 +11,7 @@ use std::str::FromStr as _;
 
 use tempdir::TempDir;
 
-use rusty_git::object::{TreeEntry, Object};
+use rusty_git::object::{ObjectData, TreeEntry};
 use rusty_git::repository::Repository;
 
 #[test]
@@ -29,7 +28,7 @@ fn reading_file_produces_same_result_as_libgit2() {
         let lg2_object = test_libgit2_read_object(path, target_object_id.as_str());
         assert_eq!(b"Hello world!", lg2_object.as_slice());
 
-        let object = test_rusty_git_read_object(path, target_object_id.as_str());
+        let object = test_rusty_git_read_blob(path, target_object_id.as_str());
         assert_eq!(b"Hello world!", object.as_slice());
     });
 }
@@ -53,41 +52,43 @@ fn reading_commit_produces_same_result_as_libgit2() {
         .trim()
         .to_owned();
 
-        let expected_commit_author_and_committer = regex::escape(
-            str::from_utf8(
-                git_log(
-                    path,
-                    &[
-                        "-1",
-                        "--format=%nauthor %an <%ae> %ad%ncommitter %cn <%ce> %cd%n%n%B",
-                        "--date=raw",
-                    ],
-                )
-                .expect("failed to get latest git commit message")
-                .stdout
-                .as_slice(),
-            )
-            .expect("failed to parse commit message as utf8")
-            .trim(),
-        );
+        let git_author_name = abuse_git_log_to_get_data(path, "%an");
+        let git_author_email = abuse_git_log_to_get_data(path, "%ae");
+        let git_committer_name = abuse_git_log_to_get_data(path, "%cn");
+        let git_committer_email = abuse_git_log_to_get_data(path, "%ce");
 
-        let expected_commit_message = format!(
-            "^tree [a-f0-9]{{40}}\n{}\n$",
-            expected_commit_author_and_committer
-        );
-        let expected_commit_pattern = Regex::new(expected_commit_message.as_str()).unwrap();
+        let lg2_repo = git2::Repository::init(path).expect("failed to initialize git repository");
+        let lg2_object_id = git2::Oid::from_str(target_object_id.as_str())
+            .expect("failed to read real git id using lg2");
 
-        let lg2_object = test_libgit2_read_object(path, target_object_id.as_str());
-        let lg2_commit = str::from_utf8(lg2_object.as_slice())
-            .expect("failed to parse libgit2 git commit object as utf8");
-        assert!(expected_commit_pattern.is_match(lg2_commit));
+        let lg2_commit = lg2_repo
+            .find_commit(lg2_object_id)
+            .expect("failed to read commit using lg2");
 
-        let object = test_rusty_git_read_object(path, target_object_id.as_str());
-        let commit = str::from_utf8(object.as_slice())
-            .expect("failed to parse rusty git commit object as utf8");
-        assert!(expected_commit_pattern.is_match(commit));
+        assert_eq!(git_author_name, lg2_commit.author().name().unwrap());
+        assert_eq!(git_author_email, lg2_commit.author().email().unwrap());
+        assert_eq!(git_committer_name, lg2_commit.committer().name().unwrap());
+        assert_eq!(git_committer_email, lg2_commit.committer().email().unwrap());
 
-        assert_eq!(lg2_commit, commit);
+        let repo = Repository::open(path).expect("failed to open repository with rusty_git");
+
+        let object_id = rusty_git::object::Id::from_str(target_object_id.as_str())
+            .expect("failed to read object ID using rusty_git");
+
+        let commit_object = repo
+            .object_database()
+            .parse_object(&object_id)
+            .expect("failed to parse tree object with rusty git");
+
+        let commit = match commit_object.data() {
+            ObjectData::Commit(commit) => commit,
+            _ => panic!("expected object to be a commit"),
+        };
+
+        assert_eq!(git_author_name, commit.author().name().unwrap());
+        assert_eq!(git_author_email, commit.author().email().unwrap());
+        assert_eq!(git_committer_name, commit.committer().name().unwrap());
+        assert_eq!(git_committer_email, commit.committer().email().unwrap());
     });
 }
 
@@ -110,33 +111,42 @@ fn reading_tree_produces_same_result_as_libgit2() {
         let lg2_tree_id = lg2_tree.id().to_string();
         let mut lg2_blob_id = String::new();
 
-        lg2_tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
-            // There is only one thing in this tree, and we know it's a blob.
-            lg2_blob_id = entry.id().to_string();
-            git2::TreeWalkResult::Ok
-        }).unwrap();
-        
+        lg2_tree
+            .walk(git2::TreeWalkMode::PreOrder, |_, entry| {
+                // There is only one thing in this tree, and we know it's a blob.
+                lg2_blob_id = entry.id().to_string();
+                git2::TreeWalkResult::Ok
+            })
+            .unwrap();
+
         assert!(cli_objects.contains(&lg2_tree_id));
         assert!(cli_objects.contains(&lg2_blob_id));
 
         let repo = Repository::open(path).expect("failed to open repository with rusty_git");
-        let target_tree_id = rusty_git::object::Id::from_str(lg2_tree_id.as_str()).expect("failed to read tree ID using rusty_git");
-        let tree_object = repo.object_database().parse_object(&target_tree_id).expect("failed to parse tree object with rusty git");
+        let target_tree_id = rusty_git::object::Id::from_str(lg2_tree_id.as_str())
+            .expect("failed to read tree ID using rusty_git");
 
-        let tree = match tree_object {
-            Object::Tree(tree) => tree,
-            _ => panic!("expected object to be a tree")
+        let tree_object = repo
+            .object_database()
+            .parse_object(&target_tree_id)
+            .expect("failed to parse tree object with rusty git");
+
+        let tree = match tree_object.data() {
+            ObjectData::Tree(tree) => tree,
+            _ => panic!("expected object to be a tree"),
         };
 
-        let tree_id = tree.id().to_string();
-        let blob_id = tree.entries().collect::<Vec<TreeEntry>>()[0].id().to_string();
+        let tree_id = tree_object.id().to_string();
+        let blob_id = tree.entries().collect::<Vec<TreeEntry>>()[0]
+            .id()
+            .to_string();
 
         assert_eq!(lg2_tree_id, tree_id);
         assert_eq!(lg2_blob_id, blob_id);
     });
 }
 
-fn test_rusty_git_read_object(cwd: &Path, id: &str) -> Vec<u8> {
+fn test_rusty_git_read_blob(cwd: &Path, id: &str) -> Vec<u8> {
     let repo = Repository::open(cwd).expect("failed to open repository with rusty_git");
 
     let object_id =
@@ -147,8 +157,8 @@ fn test_rusty_git_read_object(cwd: &Path, id: &str) -> Vec<u8> {
         .parse_object(&object_id)
         .expect("failed to get object with rusty_git");
 
-    let blob = match object {
-        Object::Blob(blob) => blob,
+    let blob = match object.data() {
+        ObjectData::Blob(blob) => blob,
         _ => panic!("expected object to be a blob"),
     };
 
@@ -177,6 +187,18 @@ fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
         .expect("failed to write to hello world file");
 
     path.join(file_name)
+}
+
+fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
+    str::from_utf8(
+        git_log(cwd, &[format!("--format={}", format).as_str(), "--date=raw"])
+            .unwrap()
+            .stdout
+            .as_slice(),
+    )
+    .unwrap()
+    .trim()
+    .to_owned()
 }
 
 fn git_log(cwd: &Path, args: &[&str]) -> Result<Output, io::Error> {

@@ -30,11 +30,17 @@ pub const ID_HEX_LEN: usize = ID_LEN * 2;
 pub struct Id([u8; ID_LEN]);
 
 #[derive(Debug)]
-pub enum Object {
+pub enum ObjectData {
     Commit(Commit),
     Tree(Tree),
     Blob(Blob),
     Tag(Tag),
+}
+
+#[derive(Debug)]
+pub struct Object {
+    id: Id,
+    data: ObjectData,
 }
 
 #[derive(Debug, Error)]
@@ -55,13 +61,37 @@ pub enum Error {
     ),
 }
 
-impl Object {
+impl ObjectData {
     pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseError> {
         Parser::new(reader).parse()
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
         Parser::new(Cursor::new(bytes)).parse()
+    }
+}
+
+impl Object {
+    pub fn from_reader<R: io::Read>(id: Id, reader: R) -> Result<Self, ParseError> {
+        Ok(Object {
+            data: ObjectData::from_reader(reader)?,
+            id,
+        })
+    }
+
+    pub fn from_bytes(id: Id, bytes: &[u8]) -> Result<Self, ParseError> {
+        Ok(Object {
+            data: ObjectData::from_bytes(bytes)?,
+            id,
+        })
+    }
+
+    pub fn id(&self) -> &Id {
+        &self.id
+    }
+
+    pub fn data(&self) -> &ObjectData {
+        &self.data
     }
 }
 

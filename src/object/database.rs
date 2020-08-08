@@ -34,7 +34,7 @@ impl ObjectDatabase {
     }
 
     pub fn parse_object(&self, id: &Id) -> Result<Object, Error> {
-        Ok(Object::from_reader(self.read_object(id)?)?)
+        Ok(Object::from_reader(*id, self.read_object(id)?)?)
     }
 
     pub fn write_object(&self, bytes: &[u8]) -> Result<(), Error> {

@@ -1,6 +1,6 @@
+use std::fmt;
 use std::io::Read;
 use std::ops::Range;
-use std::fmt;
 
 use bstr::{BStr, ByteSlice};
 
