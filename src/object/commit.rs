@@ -42,7 +42,7 @@ impl Commit {
         let mut encoding = None;
         // Consume additional commit headers
         while !parser.consume_bytes(b"\n") {
-            if let Some(range) = parser.parse_line(b"encoding")? {
+            if let Some(range) = parser.parse_line(b"encoding ")? {
                 encoding = Some(range);
             } else if parser.consume_until(b'\n').is_none() {
                 return Err(ParseError::InvalidCommit);
@@ -134,5 +134,37 @@ impl fmt::Debug for Commit {
             .field("encoding", &self.encoding())
             .field("message", &self.message())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bstr::{ByteSlice};
+
+    use crate::object::{Commit, Parser, Id};
+
+    #[test]
+    fn test_parse_tree() {
+        let parser = Parser::from_bytes(
+            b"\
+tree a552334b3ba0630d8f82ac9f27ab55625085d9bd
+parent befc2587746bb7aeb8588788caeaeadd3eb06e4b
+author Andrew Hickman <andrew.hickman1@sky.com> 1596907199 +0100
+committer Andrew Hickman <andrew.hickman1@sky.com> 1596907199 +0100
+header value
+encoding UTF-8
+
+message".to_vec(),
+        );
+
+        let commit = Commit::parse(parser).unwrap();
+        assert_eq!(commit.tree(), Id::from_str("a552334b3ba0630d8f82ac9f27ab55625085d9bd").unwrap());
+        assert_eq!(commit.parents().collect::<Vec<_>>(), &[Id::from_str("befc2587746bb7aeb8588788caeaeadd3eb06e4b").unwrap()]);
+        assert_eq!(commit.author(), "Andrew Hickman <andrew.hickman1@sky.com> 1596907199 +0100");
+        assert_eq!(commit.committer(), "Andrew Hickman <andrew.hickman1@sky.com> 1596907199 +0100");
+        assert_eq!(commit.encoding(), Some(b"UTF-8".as_bstr()));
+        assert_eq!(commit.message(), "message");
     }
 }

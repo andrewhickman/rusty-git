@@ -191,6 +191,15 @@ impl<R: Read> Parser<R> {
     }
 }
 
+#[cfg(test)]
+impl Parser<io::Cursor<Vec<u8>>> {
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
+        let mut parser = Parser::new(io::Cursor::new(bytes.into()));
+        parser.reader.read_to_end(&mut parser.buffer).unwrap();
+        parser
+    }
+}
+
 #[test]
 fn test_max_header_len() {
     assert_eq!(MAX_HEADER_LEN, format!("commit {}\0", u64::MAX).len());
