@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::str::{self, FromStr};
 
-use memchr::memchr;
+use memchr::{memchr, memrchr};
 use thiserror::Error;
 
 use crate::object::{Blob, Commit, Object, Tag, Tree};
@@ -61,17 +61,8 @@ impl<R: Read> Parser<R> {
 
     pub fn parse(mut self) -> Result<Object, ParseError> {
         let header = self.parse_header()?;
-        let start = self.pos;
-        let end = start
-            .checked_add(header.len)
-            .ok_or(ParseError::InvalidLength)?;
 
-        self.buffer.reserve(end.saturating_sub(self.buffer.len()));
-        self.reader.read_to_end(&mut self.buffer)?;
-
-        if self.buffer.len() != end {
-            return Err(ParseError::InvalidLength);
-        }
+        self.read_body(&header)?;
 
         match header.kind {
             ObjectKind::Blob => Blob::parse(self, &header).map(Object::Blob),
@@ -84,7 +75,7 @@ impl<R: Read> Parser<R> {
     pub fn parse_header(&mut self) -> Result<Header, ParseError> {
         debug_assert_eq!(self.pos, 0);
 
-        read_max(&mut self.reader, &mut self.buffer, self.pos, MAX_HEADER_LEN)?;
+        let end = self.read_header()?;
 
         let kind = self.consume_until(b' ').ok_or(ParseError::InvalidHeader)?;
         let kind = match kind {
@@ -95,11 +86,12 @@ impl<R: Read> Parser<R> {
             _ => return Err(ParseError::InvalidLength),
         };
 
-        let len = self
-            .consume_until(b'\0')
-            .ok_or(ParseError::InvalidHeader)?;
+        let len = &self.buffer[self.pos..end];
         let len = str::from_utf8(&len).map_err(|_| ParseError::InvalidHeader)?;
         let len = usize::from_str(&len).map_err(|_| ParseError::InvalidLength)?;
+
+        debug_assert_eq!(self.buffer[end], b'\0');
+        self.pos = end + 1;
 
         Ok(Header { kind, len })
     }
@@ -118,26 +110,45 @@ impl<R: Read> Parser<R> {
             None => None,
         }
     }
-}
 
-/// Read at most `buf.len()` bytes from `reader`.
-fn read_max(reader: &mut impl Read, buf: &mut Vec<u8>, mut pos: usize, max: usize) -> io::Result<()> {
-    buf.resize(pos + max, 0);
-    while pos != buf.len() {
-        match reader.read(&mut buf[pos..]) {
-            Ok(0) => {
-                buf.truncate(pos);
-                return Ok(());
+    fn read_header(&mut self) -> Result<usize, ParseError> {
+        debug_assert!(self.buffer.is_empty());
+
+        self.buffer.resize(MAX_HEADER_LEN, 0);
+
+        let mut len = 0;
+        loop {
+            match self.reader.read(&mut self.buffer[len..]) {
+                Ok(0) => return Err(ParseError::InvalidHeader),
+                Ok(read) => {
+                    let new_len = len + read;
+                    if let Some(end) = memrchr(b'\0', &self.buffer[len..new_len]) {
+                        self.buffer.truncate(new_len);
+                        return Ok(end);
+                    }
+                    len = new_len;
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(err.into()),
             }
-            Ok(n) => {
-                pos += n;
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
         }
     }
 
-    return Ok(());
+    fn read_body(&mut self, header: &Header) -> Result<(), ParseError> {
+        let start = self.pos;
+        let end = start
+            .checked_add(header.len)
+            .ok_or(ParseError::InvalidLength)?;
+
+        self.buffer.reserve(end.saturating_sub(self.buffer.len()));
+        self.reader.read_to_end(&mut self.buffer)?;
+
+        if self.buffer.len() != end {
+            return Err(ParseError::InvalidLength);
+        }
+
+        Ok(())
+    }
 }
 
 #[test]
