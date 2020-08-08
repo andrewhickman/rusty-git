@@ -9,7 +9,7 @@ pub use self::blob::Blob;
 pub use self::commit::Commit;
 pub use self::database::ObjectDatabase;
 pub use self::tag::Tag;
-pub use self::tree::Tree;
+pub use self::tree::{Tree, TreeEntry};
 
 use std::fmt;
 use std::io::{self, Cursor};

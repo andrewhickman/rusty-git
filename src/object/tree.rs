@@ -65,15 +65,15 @@ impl Tree {
 }
 
 impl<'a> TreeEntry<'a> {
-    fn mode(&self) -> u16 {
+    pub fn mode(&self) -> u16 {
         self.entry.mode
     }
 
-    fn id(&self) -> Id {
+    pub fn id(&self) -> Id {
         Id::from_bytes(&self.data[self.entry.id..(self.entry.id + ID_LEN)])
     }
 
-    fn filename(&self) -> &'a BStr {
+    pub fn filename(&self) -> &'a BStr {
         self.data[self.entry.filename_start..self.entry.filename_end].as_bstr()
     }
 }
