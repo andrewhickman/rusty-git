@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -43,38 +44,50 @@ fn reading_commit_produces_same_result_as_libgit2() {
 
         git_commit(path, "Initial commit.").expect("failed to git commit added file");
 
-        let cli_objects = git_get_objects(path);
-        let target_object_id = cli_objects[2].to_owned();
-
-        let expected_commit_message = String::from_utf8(
-            git_log(
-                path,
-                &[
-                    "-1",
-                    format!("--format=tree {}%nauthor %an <%ae> %ad%ncommitter %cn <%ce> %cd%n%n%B", cli_objects[1]).as_str(),
-                    "--date=raw",
-                ],
-            )
-            .expect("failed to get latest git commit message")
-            .stdout
-            .split_last()
-            .unwrap()
-            .1
-            .to_vec(),
+        let target_object_id = String::from_utf8(
+            git_log(path, &["-1", "--format=%H"])
+                .expect("failed to get latest git commit hash")
+                .stdout,
         )
-        .expect("failed to parse commit message as utf8");
+        .expect("failed to parse commit hash as utf8")
+        .trim()
+        .to_owned();
+
+        let expected_commit_author_and_committer = regex::escape(
+            str::from_utf8(
+                git_log(
+                    path,
+                    &[
+                        "-1",
+                        "--format=%nauthor %an <%ae> %ad%ncommitter %cn <%ce> %cd%n%n%B",
+                        "--date=raw",
+                    ],
+                )
+                .expect("failed to get latest git commit message")
+                .stdout
+                .as_slice(),
+            )
+            .expect("failed to parse commit message as utf8")
+            .trim(),
+        );
+
+        let expected_commit_message = format!(
+            "^tree [a-f0-9]{{40}}\n{}\n$",
+            expected_commit_author_and_committer
+        );
+        let expected_commit_pattern = Regex::new(expected_commit_message.as_str()).unwrap();
 
         let lg2_object = test_libgit2_read_object(path, target_object_id.as_str());
-        assert_eq!(
-            expected_commit_message,
-            String::from_utf8(lg2_object).expect("failed to parse libgit2 commit object as utf8")
-        );
+        let lg2_commit = str::from_utf8(lg2_object.as_slice())
+            .expect("failed to parse libgit2 git commit object as utf8");
+        assert!(expected_commit_pattern.is_match(lg2_commit));
 
         let object = test_rusty_git_read_object(path, target_object_id.as_str());
-        assert_eq!(
-            expected_commit_message,
-            String::from_utf8(object).expect("failed to parse rusty git commit object as utf8")
-        );
+        let commit = str::from_utf8(object.as_slice())
+            .expect("failed to parse rusty git commit object as utf8");
+        assert!(expected_commit_pattern.is_match(commit));
+
+        assert_eq!(lg2_commit, commit);
     });
 }
 
@@ -160,7 +173,7 @@ fn git_get_objects(cwd: &Path) -> Vec<String> {
 
     text.split('\n')
         .map(|line| line.split(' ').collect::<Vec<&str>>()[0])
-        .map(|s| String::from(s))
+        .map(String::from)
         .collect()
 }
 
