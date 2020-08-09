@@ -15,6 +15,35 @@ use rusty_git::object::{ObjectData, TreeEntry};
 use rusty_git::repository::Repository;
 
 #[test]
+fn reading_head_produces_same_result_as_libgit2() {
+    run_test(|path| {
+        let test_file = test_create_file(path, b"Hello world!");
+
+        git_add_file(path, test_file.as_path())
+            .expect("failed to add hello world file to git to create test object");
+
+        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+
+        let lg2_repo =
+            git2::Repository::open(path).expect("failed to open repository with libgit2");
+        let lg2_head = lg2_repo
+            .head()
+            .expect("failed to get head from libgit2 repo");
+
+        let repo = Repository::open(path).expect("failed to open repository with rusty_git");
+        let head = repo
+            .reference_database()
+            .head()
+            .expect("failed to get head from rusty_git reference database");
+
+        assert_eq!(
+            lg2_head.name().ok_or("libgit2 name was empty").unwrap(),
+            head.name().ok_or("rusty_git name was empty").unwrap()
+        );
+    });
+}
+
+#[test]
 fn reading_file_produces_same_result_as_libgit2() {
     run_test(|path| {
         let test_file = test_create_file(path, b"Hello world!");
@@ -191,10 +220,13 @@ fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
 
 fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
     str::from_utf8(
-        git_log(cwd, &[format!("--format={}", format).as_str(), "--date=raw"])
-            .unwrap()
-            .stdout
-            .as_slice(),
+        git_log(
+            cwd,
+            &[format!("--format={}", format).as_str(), "--date=raw"],
+        )
+        .unwrap()
+        .stdout
+        .as_slice(),
     )
     .unwrap()
     .trim()

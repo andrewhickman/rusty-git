@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::object::{self, ObjectDatabase};
+use crate::reference::ReferenceDatabase;
 
 const DOTGIT_FOLDER: &str = ".git";
 const OBJECTS_FOLDER: &str = "objects";
@@ -13,6 +14,7 @@ pub struct Repository {
     workdir: PathBuf,
     dotgit: PathBuf,
     object_database: ObjectDatabase,
+    reference_database: ReferenceDatabase,
 }
 
 #[derive(Debug, Error)]
@@ -52,15 +54,21 @@ impl Repository {
         };
 
         let object_database = ObjectDatabase::open(dotgit.join(OBJECTS_FOLDER));
+        let reference_database = ReferenceDatabase::open(dotgit.clone());
 
         Ok(Repository {
             workdir: path,
             dotgit,
             object_database,
+            reference_database,
         })
     }
 
     pub fn object_database(&self) -> &ObjectDatabase {
         &self.object_database
+    }
+
+    pub fn reference_database(&self) -> &ReferenceDatabase {
+        &self.reference_database
     }
 }
