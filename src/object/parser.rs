@@ -153,10 +153,7 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn parse_prefix_line(
-        &mut self,
-        prefix: &[u8],
-    ) -> Result<Option<Range<usize>>, ParseError> {
+    pub fn parse_prefix_line(&mut self, prefix: &[u8]) -> Result<Option<Range<usize>>, ParseError> {
         if !self.consume_bytes(prefix) {
             return Ok(None);
         }

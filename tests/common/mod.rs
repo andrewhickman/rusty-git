@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-use std::panic;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::process::Output;
@@ -51,6 +51,17 @@ pub fn git_commit(cwd: &Path, message: &str) -> Result<Output, io::Error> {
         .arg("-m")
         .arg(message)
         .output()
+}
+
+pub fn git_tag(cwd: &Path, name: &str, message: Option<&str>) -> Result<Output, io::Error> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(cwd).arg("tag").arg(name);
+    if let Some(message) = message {
+        cmd.arg("--annotate");
+        cmd.arg("--message");
+        cmd.arg(message);
+    }
+    cmd.output()
 }
 
 pub fn git_add_file(cwd: &Path, file: &Path) -> Result<Output, io::Error> {
