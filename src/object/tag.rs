@@ -1,11 +1,11 @@
+use std::fmt;
 use std::io::Read;
 use std::ops::Range;
-use std::fmt;
 
 use bstr::{BStr, ByteSlice};
 
-use crate::object::{ParseError, Parser, ObjectKind, Id, ID_HEX_LEN};
-use crate::object::signature::{SignatureRaw, Signature};
+use crate::object::signature::{Signature, SignatureRaw};
+use crate::object::{Id, ObjectKind, ParseError, Parser, ID_HEX_LEN};
 
 pub struct Tag {
     data: Vec<u8>,
@@ -27,7 +27,8 @@ impl Tag {
             .ok_or(ParseError::InvalidTag("type field not found"))?;
         let kind = ObjectKind::from_bytes(&parser.bytes(kind))?;
 
-        let tag = parser.parse_prefix_line(b"tag ")?
+        let tag = parser
+            .parse_prefix_line(b"tag ")?
             .ok_or(ParseError::InvalidTag("tag field not found"))?;
 
         let tagger = parser.parse_signature(b"tagger ")?;
@@ -67,8 +68,7 @@ impl Tag {
     }
 
     pub fn message(&self) -> Option<&BStr> {
-        self.message
-            .map(|message| self.data[message..].as_bstr())
+        self.message.map(|message| self.data[message..].as_bstr())
     }
 }
 

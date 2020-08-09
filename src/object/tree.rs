@@ -32,7 +32,8 @@ impl Tree {
             let mode = parser
                 .consume_until(b' ')
                 .ok_or(ParseError::InvalidTree("expected space"))?;
-            let mode = str::from_utf8(parser.bytes(mode)).map_err(|_| ParseError::InvalidTree("invalid mode"))?;
+            let mode = str::from_utf8(parser.bytes(mode))
+                .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
             let mode = u16::from_str_radix(mode, 8)
                 .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
 
@@ -63,7 +64,7 @@ impl Tree {
         })
     }
 
-    pub fn entries<'a>(&'a self) -> impl ExactSizeIterator<Item = TreeEntry<'a>> {
+    pub fn entries(&self) -> impl ExactSizeIterator<Item = TreeEntry> {
         self.entries.iter().copied().map(move |entry| TreeEntry {
             data: &self.data,
             entry,

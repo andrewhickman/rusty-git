@@ -1,7 +1,7 @@
 use std::io::{self, Read};
 use std::ops::Range;
-use std::str::{self, FromStr};
 use std::slice::SliceIndex;
+use std::str::{self, FromStr};
 
 use memchr::memchr;
 use thiserror::Error;
@@ -73,7 +73,10 @@ impl<R: Read> Parser<R> {
         self.pos
     }
 
-    pub fn bytes<I>(&self, index: I) -> &I::Output where I: SliceIndex<[u8]> {
+    pub fn bytes<I>(&self, index: I) -> &I::Output
+    where
+        I: SliceIndex<[u8]>,
+    {
         self.buffer.get(index).expect("invalid index")
     }
 
@@ -138,7 +141,7 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<Range<usize>> {
+    pub fn consume_until(&mut self, ch: u8) -> Option<Range<usize>> {
         match memchr(ch, self.remaining_buffer()) {
             Some(ch_pos) => {
                 let start = self.pos;
@@ -150,8 +153,8 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn parse_prefix_line<'a>(
-        &'a mut self,
+    pub fn parse_prefix_line(
+        &mut self,
         prefix: &[u8],
     ) -> Result<Option<Range<usize>>, ParseError> {
         if !self.consume_bytes(prefix) {
@@ -177,7 +180,7 @@ impl<R: Read> Parser<R> {
             return Err(ParseError::UnexpectedEof);
         }
 
-        if let Err(_) = Id::from_hex(&self.bytes(start..)[..ID_HEX_LEN]) {
+        if Id::from_hex(&self.bytes(start..)[..ID_HEX_LEN]).is_err() {
             return Err(ParseError::UnexpectedEof);
         }
 
