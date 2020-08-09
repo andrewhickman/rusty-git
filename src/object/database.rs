@@ -26,7 +26,7 @@ impl ObjectDatabase {
         self.loose.read_object(id)
     }
 
-    pub fn write_object(&self, bytes: &[u8]) -> Result<(), Error> {
+    pub fn write_object(&self, bytes: &[u8]) -> Result<Id, Error> {
         self.loose.write_object(bytes)
     }
 }

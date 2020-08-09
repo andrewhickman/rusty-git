@@ -35,7 +35,7 @@ impl LooseObjectDatabase {
         }
     }
 
-    pub fn write_object(&self, bytes: &[u8]) -> Result<(), Error> {
+    pub fn write_object(&self, bytes: &[u8]) -> Result<Id, Error> {
         let id = Id::from_hash(bytes);
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);
@@ -49,17 +49,45 @@ impl LooseObjectDatabase {
         path.push(file);
         let file = match OpenOptions::new().create_new(true).write(true).open(&path) {
             Ok(file) => fs_err::File::from_parts(file, path),
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Ok(id),
             Err(err) => return Err(err.into()),
         };
 
         let mut encoder = ZlibEncoder::new(file, Compression::best());
         encoder.write_all(bytes)?;
         encoder.finish()?;
-        Ok(())
+        Ok(id)
     }
 }
 
 fn object_path_parts(hex: &str) -> (&str, &str) {
     hex.split_at(2)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs::create_dir;
+    use std::io::Read;
+
+    use proptest::{proptest, collection::vec, arbitrary::any, prop_assert_eq};
+    use tempdir::TempDir;
+
+    use super::{LooseObjectDatabase, OBJECTS_FOLDER};
+
+    proptest! {
+        #[test]
+        fn roundtrip_object(bytes in vec(any::<u8>(), ..1000)) {
+            let tempdir = TempDir::new("rusty_git_odb_loose_tests").unwrap();
+            create_dir(tempdir.path().join(OBJECTS_FOLDER)).unwrap();
+
+            let db = LooseObjectDatabase::open(tempdir.path());
+
+            let id = db.write_object(&bytes).unwrap();
+
+            let mut read_bytes = Vec::new();
+            db.read_object(&id).unwrap().read_to_end(&mut read_bytes).unwrap();
+
+            prop_assert_eq!(read_bytes, bytes);
+        }
+    }
 }
