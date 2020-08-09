@@ -7,7 +7,6 @@ use crate::object::{self, ObjectDatabase};
 use crate::reference::ReferenceDatabase;
 
 const DOTGIT_FOLDER: &str = ".git";
-const OBJECTS_FOLDER: &str = "objects";
 
 #[derive(Debug)]
 pub struct Repository {
@@ -53,7 +52,7 @@ impl Repository {
             Err(err) => return Err(OpenError::from(err)),
         };
 
-        let object_database = ObjectDatabase::open(dotgit.join(OBJECTS_FOLDER));
+        let object_database = ObjectDatabase::open(&dotgit);
         let reference_database = ReferenceDatabase::open(dotgit.clone());
 
         Ok(Repository {
