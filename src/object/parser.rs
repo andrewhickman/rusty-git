@@ -24,8 +24,8 @@ pub enum ParseError {
     InvalidLength,
     #[error("object size header doesn't match actual size")]
     LengthMismatch,
-    #[error("a tree object is invalid")]
-    InvalidTree,
+    #[error("the tree is invalid: {0}")]
+    InvalidTree(&'static str),
     #[error("a commit object is invalid")]
     InvalidCommit,
     #[error("io error reading object")]

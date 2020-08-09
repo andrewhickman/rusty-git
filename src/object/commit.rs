@@ -213,7 +213,7 @@ mod tests {
     use crate::object::{Commit, Parser, Id};
 
     #[test]
-    fn test_parse_tree() {
+    fn test_parse_commit() {
         let parser = Parser::from_bytes(
             b"\
 tree a552334b3ba0630d8f82ac9f27ab55625085d9bd
