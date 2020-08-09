@@ -1,10 +1,12 @@
 use std::io::{self, Read};
+use std::ops::Range;
+use std::slice::SliceIndex;
 use std::str::{self, FromStr};
 
 use memchr::memchr;
 use thiserror::Error;
 
-use crate::object::{Blob, Commit, ObjectData, Tag, Tree};
+use crate::object::{Blob, Commit, Id, ObjectData, Tag, Tree, ID_HEX_LEN};
 
 const MAX_HEADER_LEN: usize = 28;
 
@@ -18,16 +20,24 @@ pub struct Parser<R> {
 pub enum ParseError {
     #[error("unknown object type")]
     UnknownType,
+    #[error("unexpected end of file")]
+    UnexpectedEof,
     #[error("object header is malformed")]
     InvalidHeader,
     #[error("object size is too large")]
     InvalidLength,
     #[error("object size header doesn't match actual size")]
     LengthMismatch,
-    #[error("a tree object is invalid")]
-    InvalidTree,
+    #[error("the tree is invalid: {0}")]
+    InvalidTree(&'static str),
     #[error("a commit object is invalid")]
     InvalidCommit,
+    #[error("a signature is invalid")]
+    InvalidSignature,
+    #[error("an object id is invalid")]
+    InvalidId,
+    #[error("an tag object is invalid: {0}")]
+    InvalidTag(&'static str),
     #[error("io error reading object")]
     Io(
         #[from]
@@ -36,7 +46,7 @@ pub enum ParseError {
     ),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ObjectKind {
     Commit,
     Tree,
@@ -63,8 +73,11 @@ impl<R: Read> Parser<R> {
         self.pos
     }
 
-    pub fn bytes(&self) -> &[u8] {
-        &self.buffer
+    pub fn bytes<I>(&self, index: I) -> &I::Output
+    where
+        I: SliceIndex<[u8]>,
+    {
+        self.buffer.get(index).expect("invalid index")
     }
 
     pub fn remaining(&self) -> usize {
@@ -103,13 +116,7 @@ impl<R: Read> Parser<R> {
         let end = self.read_header()?;
 
         let kind = self.consume_until(b' ').ok_or(ParseError::InvalidHeader)?;
-        let kind = match kind {
-            b"commit" => ObjectKind::Commit,
-            b"tree" => ObjectKind::Tree,
-            b"blob" => ObjectKind::Blob,
-            b"tag" => ObjectKind::Tag,
-            _ => return Err(ParseError::InvalidLength),
-        };
+        let kind = ObjectKind::from_bytes(self.bytes(kind))?;
 
         let len = &self.buffer[self.pos..end];
         let len = str::from_utf8(&len).map_err(|_| ParseError::InvalidHeader)?;
@@ -134,15 +141,50 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<&'a [u8]> {
+    pub fn consume_until(&mut self, ch: u8) -> Option<Range<usize>> {
         match memchr(ch, self.remaining_buffer()) {
             Some(ch_pos) => {
-                let result = &self.buffer[self.pos..][..ch_pos];
-                self.pos += ch_pos + 1;
-                Some(result)
+                let start = self.pos;
+                let end = start + ch_pos;
+                self.pos = end + 1;
+                Some(start..end)
             }
             None => None,
         }
+    }
+
+    pub fn parse_prefix_line(
+        &mut self,
+        prefix: &[u8],
+    ) -> Result<Option<Range<usize>>, ParseError> {
+        if !self.consume_bytes(prefix) {
+            return Ok(None);
+        }
+
+        let start = self.pos();
+        let end = match self.consume_until(b'\n') {
+            Some(line) => start + line.len(),
+            None => return Err(ParseError::UnexpectedEof),
+        };
+
+        Ok(Some(start..end))
+    }
+
+    pub fn parse_hex_id_line(&mut self, prefix: &[u8]) -> Result<Option<usize>, ParseError> {
+        if !self.consume_bytes(prefix) {
+            return Ok(None);
+        }
+
+        let start = self.pos();
+        if !self.advance(ID_HEX_LEN) || !self.consume_bytes(b"\n") {
+            return Err(ParseError::UnexpectedEof);
+        }
+
+        if Id::from_hex(&self.bytes(start..)[..ID_HEX_LEN]).is_err() {
+            return Err(ParseError::UnexpectedEof);
+        }
+
+        Ok(Some(start))
     }
 
     fn remaining_buffer(&self) -> &[u8] {
@@ -188,6 +230,18 @@ impl<R: Read> Parser<R> {
         }
 
         Ok(())
+    }
+}
+
+impl ObjectKind {
+    pub fn from_bytes(input: &[u8]) -> Result<Self, ParseError> {
+        match input {
+            b"commit" => Ok(ObjectKind::Commit),
+            b"tree" => Ok(ObjectKind::Tree),
+            b"blob" => Ok(ObjectKind::Blob),
+            b"tag" => Ok(ObjectKind::Tag),
+            _ => Err(ParseError::UnknownType),
+        }
     }
 }
 

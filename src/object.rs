@@ -2,12 +2,14 @@ mod blob;
 mod commit;
 mod database;
 mod parser;
+mod signature;
 mod tag;
 mod tree;
 
 pub use self::blob::Blob;
 pub use self::commit::Commit;
 pub use self::database::ObjectDatabase;
+pub use self::signature::Signature;
 pub use self::tag::Tag;
 pub use self::tree::{Tree, TreeEntry};
 
@@ -21,7 +23,7 @@ use sha1::digest::Digest;
 use sha1::Sha1;
 use thiserror::Error;
 
-use self::parser::{ParseError, Parser};
+use self::parser::{ObjectKind, ParseError, Parser};
 
 pub const ID_LEN: usize = 20;
 pub const ID_HEX_LEN: usize = ID_LEN * 2;

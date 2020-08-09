@@ -1,18 +1,14 @@
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
+mod common;
+
 use std::panic;
 use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
-use std::process::Output;
 use std::str;
 use std::str::FromStr as _;
 
-use tempdir::TempDir;
-
 use rusty_git::object::{ObjectData, TreeEntry};
 use rusty_git::repository::Repository;
+
+use self::common::*;
 
 #[test]
 fn reading_head_produces_same_result_as_libgit2() {
@@ -114,10 +110,10 @@ fn reading_commit_produces_same_result_as_libgit2() {
             _ => panic!("expected object to be a commit"),
         };
 
-        assert_eq!(git_author_name, commit.author().name().unwrap());
-        assert_eq!(git_author_email, commit.author().email().unwrap());
-        assert_eq!(git_committer_name, commit.committer().name().unwrap());
-        assert_eq!(git_committer_email, commit.committer().email().unwrap());
+        assert_eq!(git_author_name, commit.author().name());
+        assert_eq!(git_author_email, commit.author().email());
+        assert_eq!(git_committer_name, commit.committer().name());
+        assert_eq!(git_committer_email, commit.committer().email());
     });
 }
 
@@ -206,100 +202,4 @@ fn test_libgit2_read_object(cwd: &Path, id: &str) -> Vec<u8> {
         .expect("failed to read object using lg2");
 
     object.data().to_vec()
-}
-
-fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
-    let file_name = "hello_world.txt";
-    let mut file = File::create(path.join(file_name)).expect("failed to create hello world file");
-
-    file.write_all(content)
-        .expect("failed to write to hello world file");
-
-    path.join(file_name)
-}
-
-fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
-    str::from_utf8(
-        git_log(
-            cwd,
-            &[format!("--format={}", format).as_str(), "--date=raw"],
-        )
-        .unwrap()
-        .stdout
-        .as_slice(),
-    )
-    .unwrap()
-    .trim()
-    .to_owned()
-}
-
-fn git_log(cwd: &Path, args: &[&str]) -> Result<Output, io::Error> {
-    Command::new("git")
-        .current_dir(cwd)
-        .arg("log")
-        .args(args)
-        .output()
-}
-
-fn git_commit(cwd: &Path, message: &str) -> Result<Output, io::Error> {
-    Command::new("git")
-        .current_dir(cwd)
-        .arg("commit")
-        .arg("-m")
-        .arg(message)
-        .output()
-}
-
-fn git_add_file(cwd: &Path, file: &Path) -> Result<Output, io::Error> {
-    Command::new("git")
-        .current_dir(cwd)
-        .arg("add")
-        .arg(file)
-        .output()
-}
-
-fn git_get_objects(cwd: &Path) -> Vec<String> {
-    let output = Command::new("git")
-        .current_dir(cwd)
-        .arg("cat-file")
-        .arg("--batch-check")
-        .arg("--batch-all-objects")
-        .output()
-        .expect("failed to read git objects using cat-file");
-
-    let text =
-        str::from_utf8(output.stdout.as_slice()).expect("failed to parse output from git cat-file");
-
-    text.split('\n')
-        .map(|line| line.split(' ').collect::<Vec<&str>>()[0])
-        .map(String::from)
-        .collect()
-}
-
-fn git_init(cwd: &Path) -> Result<Output, io::Error> {
-    Command::new("git").current_dir(cwd).arg("init").output()
-}
-
-fn run_test<T>(test: T)
-where
-    T: FnOnce(&Path) + panic::UnwindSafe,
-{
-    let directory = setup();
-    let result = panic::catch_unwind(|| test(directory.path()));
-    teardown(directory);
-
-    assert!(result.is_ok());
-}
-
-fn setup() -> TempDir {
-    let temp = TempDir::new("test-").expect("failed to create test directory");
-    println!("path: {}", temp.path().display());
-    git_init(temp.path()).expect("failed to initialize git repository");
-    temp
-}
-
-fn teardown(temp: TempDir) {
-    let path = temp.path().to_owned();
-    temp.close()
-        .unwrap_or_else(|_| panic!("failed to clean up test directory: {}", path.display()));
 }
