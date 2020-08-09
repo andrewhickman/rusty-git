@@ -92,25 +92,6 @@ impl Commit {
     }
 }
 
-impl<R: Read> Parser<R> {
-    fn parse_hex_id_line(&mut self, prefix: &[u8]) -> Result<Option<usize>, ParseError> {
-        if !self.consume_bytes(prefix) {
-            return Ok(None);
-        }
-
-        let start = self.pos();
-        if !self.advance(ID_HEX_LEN) || !self.consume_bytes(b"\n") {
-            return Err(ParseError::InvalidCommit);
-        }
-
-        if let Err(_) = Id::from_hex(&self.bytes()[start..][..ID_HEX_LEN]) {
-            return Err(ParseError::InvalidCommit);
-        }
-
-        Ok(Some(start))
-    }
-}
-
 impl fmt::Debug for Commit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Commit")

@@ -1,5 +1,5 @@
-use std::ops::Range;
 use std::io::Read;
+use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
 use once_cell::sync::Lazy;
@@ -7,6 +7,7 @@ use regex::bytes::{Captures, Regex};
 
 use crate::object::{ParseError, Parser};
 
+#[derive(Clone)]
 pub struct SignatureRaw {
     range: Range<usize>,
 }
@@ -62,7 +63,7 @@ impl<'a> Signature<'a> {
 impl<R: Read> Parser<R> {
     pub fn parse_signature(&mut self, prefix: &[u8]) -> Result<Option<SignatureRaw>, ParseError> {
         if let Some(range) = self.parse_prefix_line(prefix)? {
-            if Signature::is_valid(&self.bytes()[range.clone()]) {
+            if Signature::is_valid(self.bytes(range.clone())) {
                 Ok(Some(SignatureRaw { range }))
             } else {
                 Err(ParseError::InvalidSignature)
@@ -81,7 +82,9 @@ mod tests {
 
     #[test]
     fn test_parse_signature() {
-        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev> 1596907199 +0100\n".to_vec());
+        let mut parser = Parser::from_bytes(
+            b"author Andrew Hickman <me@andrewhickman.dev> 1596907199 +0100\n".to_vec(),
+        );
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
         let buf = parser.finish();
         let signature = Signature::new(&buf, &signature_raw);
@@ -94,7 +97,9 @@ mod tests {
 
     #[test]
     fn test_parse_signature_no_timezone() {
-        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev> 1596907199\n".to_vec());
+        let mut parser = Parser::from_bytes(
+            b"author Andrew Hickman <me@andrewhickman.dev> 1596907199\n".to_vec(),
+        );
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
         let buf = parser.finish();
         let signature = Signature::new(&buf, &signature_raw);
@@ -107,7 +112,8 @@ mod tests {
 
     #[test]
     fn test_parse_signature_no_timestamp() {
-        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev>\n".to_vec());
+        let mut parser =
+            Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev>\n".to_vec());
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
         let buf = parser.finish();
         let signature = Signature::new(&buf, &signature_raw);
