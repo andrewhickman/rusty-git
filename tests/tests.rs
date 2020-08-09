@@ -15,10 +15,9 @@ fn reading_head_produces_same_result_as_libgit2() {
     run_test(|path| {
         let test_file = test_create_file(path, b"Hello world!");
 
-        git_add_file(path, test_file.as_path())
-            .expect("failed to add hello world file to git to create test object");
+        git_add_file(path, test_file.as_path());
 
-        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+        git_commit(path, "Initial commit.");
 
         let lg2_repo =
             git2::Repository::open(path).expect("failed to open repository with libgit2");
@@ -44,8 +43,7 @@ fn reading_file_produces_same_result_as_libgit2() {
     run_test(|path| {
         let test_file = test_create_file(path, b"Hello world!");
 
-        git_add_file(path, test_file.as_path())
-            .expect("failed to add hello world file to git to create test object");
+        git_add_file(path, test_file.as_path());
 
         let cli_objects = git_get_objects(path);
         let target_object_id = cli_objects[0].to_owned();
@@ -63,7 +61,6 @@ fn reading_commit_produces_same_result_as_libgit2() {
     run_test_in_repo(|path| {
         let target_object_id = String::from_utf8(
             git_log(path, &["-1", "--format=%H"])
-                .expect("failed to get latest git commit hash")
                 .stdout,
         )
         .expect("failed to parse commit hash as utf8")

@@ -11,7 +11,7 @@ use rusty_git::repository::Repository;
 #[test]
 fn reading_tag_produces_same_result_as_libgit2() {
     run_test_in_repo(|path| {
-        git_tag(path, "mytag", Some("my message")).unwrap();
+        git_tag(path, "mytag", Some("my message"));
 
         let lg_repo = git2::Repository::open(path).unwrap();
         let rg_repo = Repository::open(path).unwrap();

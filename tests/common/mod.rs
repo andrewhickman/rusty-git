@@ -5,8 +5,7 @@ use std::io;
 use std::io::prelude::*;
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
 use std::str;
 
 use tempdir::TempDir;
@@ -27,7 +26,6 @@ pub fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
             cwd,
             &[format!("--format={}", format).as_str(), "--date=raw"],
         )
-        .unwrap()
         .stdout
         .as_slice(),
     )
@@ -36,40 +34,51 @@ pub fn abuse_git_log_to_get_data(cwd: &Path, format: &str) -> String {
     .to_owned()
 }
 
-pub fn git_log(cwd: &Path, args: &[&str]) -> Result<Output, io::Error> {
-    Command::new("git")
+pub fn git_log(cwd: &Path, args: &[&str]) -> Output {
+    let output = Command::new("git")
         .current_dir(cwd)
         .arg("log")
         .args(args)
         .output()
+        .unwrap();
+    assert!(output.status.success());
+    output
 }
 
-pub fn git_commit(cwd: &Path, message: &str) -> Result<Output, io::Error> {
-    Command::new("git")
+pub fn git_commit(cwd: &Path, message: &str) {
+    assert!(Command::new("git")
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
         .current_dir(cwd)
+        .arg("-c")
+        .arg("user.name=test")
         .arg("commit")
-        .arg("-m")
+        .arg("--message")
         .arg(message)
-        .output()
+        .status().unwrap().success())
 }
 
-pub fn git_tag(cwd: &Path, name: &str, message: Option<&str>) -> Result<Output, io::Error> {
+pub fn git_tag(cwd: &Path, name: &str, message: Option<&str>) {
     let mut cmd = Command::new("git");
+    cmd.stderr(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.arg("-c");
+    cmd.arg("user.name=test");
     cmd.current_dir(cwd).arg("tag").arg(name);
     if let Some(message) = message {
         cmd.arg("--annotate");
         cmd.arg("--message");
         cmd.arg(message);
     }
-    cmd.output()
+    assert!(cmd.status().unwrap().success());
 }
 
-pub fn git_add_file(cwd: &Path, file: &Path) -> Result<Output, io::Error> {
-    Command::new("git")
+pub fn git_add_file(cwd: &Path, file: &Path) {
+    assert!(Command::new("git")
         .current_dir(cwd)
         .arg("add")
         .arg(file)
-        .output()
+        .status().unwrap().success());
 }
 
 pub fn git_get_objects(cwd: &Path) -> Vec<String> {
@@ -112,10 +121,9 @@ where
     run_test(|path| {
         let test_file = test_create_file(path, b"Hello world!");
 
-        git_add_file(path, test_file.as_path())
-            .expect("failed to add hello world file to git to create test object");
+        git_add_file(path, test_file.as_path());
 
-        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+        git_commit(path, "Initial commit.");
 
         test(path)
     })
