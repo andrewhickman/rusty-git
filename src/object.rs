@@ -2,12 +2,14 @@ mod blob;
 mod commit;
 mod database;
 mod parser;
+mod signature;
 mod tag;
 mod tree;
 
 pub use self::blob::Blob;
 pub use self::commit::Commit;
 pub use self::database::ObjectDatabase;
+pub use self::signature::Signature;
 pub use self::tag::Tag;
 pub use self::tree::{Tree, TreeEntry};
 

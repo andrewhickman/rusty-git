@@ -3,23 +3,18 @@ use std::io::Read;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
-use regex::bytes::{Regex, Captures};
-use once_cell::sync::Lazy;
 
+use crate::object::signature::{Signature, SignatureRaw};
 use crate::object::{Id, ParseError, Parser, ID_HEX_LEN};
 
 pub struct Commit {
     data: Vec<u8>,
     tree: usize,
     parents: Vec<usize>,
-    author: Range<usize>,
-    committer: Range<usize>,
+    author: SignatureRaw,
+    committer: SignatureRaw,
     encoding: Option<Range<usize>>,
     message: usize,
-}
-
-pub struct Signature<'a> {
-    captures: Captures<'a>,
 }
 
 impl Commit {
@@ -48,7 +43,7 @@ impl Commit {
         let mut encoding = None;
         // Consume additional commit headers
         while !parser.consume_bytes(b"\n") {
-            if let Some(range) = parser.parse_line(b"encoding ")? {
+            if let Some(range) = parser.parse_prefix_line(b"encoding ")? {
                 encoding = Some(range);
             } else if parser.consume_until(b'\n').is_none() {
                 return Err(ParseError::InvalidCommit);
@@ -79,11 +74,11 @@ impl Commit {
     }
 
     pub fn author<'a>(&'a self) -> Signature<'a> {
-        Signature::new(&self.data[self.author.clone()])
+        Signature::new(&self.data, &self.author)
     }
 
     pub fn committer<'a>(&'a self) -> Signature<'a> {
-        Signature::new(&self.data[self.committer.clone()])
+        Signature::new(&self.data, &self.committer)
     }
 
     pub fn encoding(&self) -> Option<&BStr> {
@@ -94,44 +89,6 @@ impl Commit {
 
     pub fn message(&self) -> &BStr {
         self.data[self.message..].as_bstr()
-    }
-}
-
-impl<'a> Signature<'a> {
-    fn regex() -> &'static Regex {
-        const PADDING_CHARS: &str = "[\x00-\x32.,:;<>\"\\\\']*";
-
-        static REGEX: Lazy<Regex> = Lazy::new(||
-            Regex::new(&format!(r"{pad}(.*){pad} <{pad}(.*){pad}>(?: (\d+)(?: ([+\-]\d+))?)?", pad = PADDING_CHARS)).unwrap()
-        );
-
-        &*REGEX
-    }
-
-    fn is_valid(input: &[u8]) -> bool {
-        Signature::regex().is_match(input)
-    }
-
-    fn new(input: &'a [u8]) -> Self {
-        Signature {
-            captures: Signature::regex().captures(input).expect("invalid signature"),
-        }
-    }
-
-    pub fn name(&self) -> &'a BStr {
-        self.captures.get(1).unwrap().as_bytes().as_bstr()
-    }
-
-    pub fn email(&self) -> &'a BStr {
-        self.captures.get(2).unwrap().as_bytes().as_bstr()
-    }
-
-    pub fn timestamp(&self) -> Option<&'a BStr> {
-        self.captures.get(3).map(|mat| mat.as_bytes().as_bstr())
-    }
-
-    pub fn timezone(&self) -> Option<&'a BStr> {
-        self.captures.get(4).map(|mat| mat.as_bytes().as_bstr())
     }
 }
 
@@ -151,32 +108,6 @@ impl<R: Read> Parser<R> {
         }
 
         Ok(Some(start))
-    }
-
-    fn parse_signature(&mut self, prefix: &[u8]) -> Result<Option<Range<usize>>, ParseError> {
-        if let Some(line) = self.parse_line(prefix)? {
-            if Signature::is_valid(&self.bytes()[line.clone()]) {
-                Ok(Some(line))
-            } else {
-                Err(ParseError::InvalidCommit)
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn parse_line<'a>(&'a mut self, prefix: &[u8]) -> Result<Option<Range<usize>>, ParseError> {
-        if !self.consume_bytes(prefix) {
-            return Ok(None);
-        }
-
-        let start = self.pos();
-        let end = match self.consume_until(b'\n') {
-            Some(line) => start + line.len(),
-            None => return Err(ParseError::InvalidCommit),
-        };
-
-        Ok(Some(start..end))
     }
 }
 
@@ -208,9 +139,9 @@ impl<'a> fmt::Debug for Signature<'a> {
 mod tests {
     use std::str::FromStr;
 
-    use bstr::{ByteSlice};
+    use bstr::ByteSlice;
 
-    use crate::object::{Commit, Parser, Id};
+    use crate::object::{Commit, Id, Parser};
 
     #[test]
     fn test_parse_commit() {
@@ -223,12 +154,19 @@ committer Andrew Hickman <me@andrewhickman.dev>
 header value
 encoding UTF-8
 
-message".to_vec(),
+message"
+                .to_vec(),
         );
 
         let commit = Commit::parse(parser).unwrap();
-        assert_eq!(commit.tree(), Id::from_str("a552334b3ba0630d8f82ac9f27ab55625085d9bd").unwrap());
-        assert_eq!(commit.parents().collect::<Vec<_>>(), &[Id::from_str("befc2587746bb7aeb8588788caeaeadd3eb06e4b").unwrap()]);
+        assert_eq!(
+            commit.tree(),
+            Id::from_str("a552334b3ba0630d8f82ac9f27ab55625085d9bd").unwrap()
+        );
+        assert_eq!(
+            commit.parents().collect::<Vec<_>>(),
+            &[Id::from_str("befc2587746bb7aeb8588788caeaeadd3eb06e4b").unwrap()]
+        );
         assert_eq!(commit.author().name(), "Andrew Hickman");
         assert_eq!(commit.author().email(), "me@andrewhickman.dev");
         assert_eq!(commit.author().timestamp(), Some(b"1596907199".as_bstr()));

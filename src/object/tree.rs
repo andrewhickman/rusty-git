@@ -29,9 +29,12 @@ impl Tree {
         let mut entries = Vec::with_capacity(parser.remaining() / 140);
 
         while !parser.finished() {
-            let mode = parser.consume_until(b' ').ok_or(ParseError::InvalidTree("expected space"))?;
+            let mode = parser
+                .consume_until(b' ')
+                .ok_or(ParseError::InvalidTree("expected space"))?;
             let mode = str::from_utf8(mode).map_err(|_| ParseError::InvalidTree("invalid mode"))?;
-            let mode = u16::from_str_radix(mode, 8).map_err(|_| ParseError::InvalidTree("invalid mode"))?;
+            let mode = u16::from_str_radix(mode, 8)
+                .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
 
             let filename_start = parser.pos();
             let filename_end = filename_start
@@ -100,7 +103,7 @@ impl<'a> fmt::Debug for TreeEntry<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::object::{Tree, Parser};
+    use crate::object::{Parser, Tree};
 
     #[test]
     fn test_parse_tree() {
@@ -108,17 +111,24 @@ mod tests {
             b"\
 40000 .github\0\x49\x19\x89\xb9\x30\xc1\xe5\xd0\x83\xa4\xd2\xa1\xf7\xfa\x42\xaa\xa8\x6c\x13\x75\
 100644 .gitignore\0\x69\x36\x99\x04\x2b\x1a\x8c\xcf\x69\x76\x36\xd3\xcd\x34\xb2\x00\xf3\xa8\x27\x8b\
-".to_vec(),
+"
+            .to_vec(),
         );
 
         let tree = Tree::parse(parser).unwrap();
         let entries: Vec<_> = tree.entries().collect();
 
         assert_eq!(entries[0].mode(), 16384);
-        assert_eq!(entries[0].id().to_hex(), "491989b930c1e5d083a4d2a1f7fa42aaa86c1375");
+        assert_eq!(
+            entries[0].id().to_hex(),
+            "491989b930c1e5d083a4d2a1f7fa42aaa86c1375"
+        );
         assert_eq!(entries[0].filename(), ".github");
         assert_eq!(entries[1].mode(), 33188);
-        assert_eq!(entries[1].id().to_hex(), "693699042b1a8ccf697636d3cd34b200f3a8278b");
+        assert_eq!(
+            entries[1].id().to_hex(),
+            "693699042b1a8ccf697636d3cd34b200f3a8278b"
+        );
         assert_eq!(entries[1].filename(), ".gitignore");
     }
 }

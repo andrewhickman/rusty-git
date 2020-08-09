@@ -1,5 +1,6 @@
 use std::io::{self, Read};
 use std::str::{self, FromStr};
+use std::ops::Range;
 
 use memchr::memchr;
 use thiserror::Error;
@@ -28,6 +29,8 @@ pub enum ParseError {
     InvalidTree(&'static str),
     #[error("a commit object is invalid")]
     InvalidCommit,
+    #[error("a signature is invalid")]
+    InvalidSignature,
     #[error("io error reading object")]
     Io(
         #[from]
@@ -143,6 +146,20 @@ impl<R: Read> Parser<R> {
             }
             None => None,
         }
+    }
+
+    pub fn parse_prefix_line<'a>(&'a mut self, prefix: &[u8]) -> Result<Option<Range<usize>>, ParseError> {
+        if !self.consume_bytes(prefix) {
+            return Ok(None);
+        }
+
+        let start = self.pos();
+        let end = match self.consume_until(b'\n') {
+            Some(line) => start + line.len(),
+            None => return Err(ParseError::InvalidCommit),
+        };
+
+        Ok(Some(start..end))
     }
 
     fn remaining_buffer(&self) -> &[u8] {
