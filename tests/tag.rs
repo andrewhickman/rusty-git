@@ -1,12 +1,12 @@
 mod common;
 
-use std::string::{ToString};
 use std::str::FromStr;
+use std::string::ToString;
 
 use self::common::*;
 
-use rusty_git::repository::Repository;
 use rusty_git::object::{self, ObjectData};
+use rusty_git::repository::Repository;
 
 #[test]
 fn reading_tag_produces_same_result_as_libgit2() {
@@ -30,6 +30,9 @@ fn reading_tag_produces_same_result_as_libgit2() {
         assert_eq!(lg_tag.name_bytes(), rg_tag.tag());
         assert_eq!(lg_tag.target_id().to_string(), rg_tag.object().to_string());
         assert_eq!(lg_tag.message_bytes().unwrap(), rg_tag.message().unwrap());
-        assert_eq!(lg_tag.tagger().unwrap().name_bytes(), rg_tag.tagger().unwrap().name());
+        assert_eq!(
+            lg_tag.tagger().unwrap().name_bytes(),
+            rg_tag.tagger().unwrap().name()
+        );
     })
 }
