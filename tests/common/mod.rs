@@ -94,6 +94,22 @@ where
     assert!(result.is_ok());
 }
 
+pub fn run_test_in_repo<T>(test: T)
+where
+    T: FnOnce(&Path) + panic::UnwindSafe,
+{
+    run_test(|path| {
+        let test_file = test_create_file(path, b"Hello world!");
+
+        git_add_file(path, test_file.as_path())
+            .expect("failed to add hello world file to git to create test object");
+
+        git_commit(path, "Initial commit.").expect("failed to git commit added file");
+
+        test(path)
+    })
+}
+
 pub fn setup() -> TempDir {
     let temp = TempDir::new("test-").expect("failed to create test directory");
     println!("path: {}", temp.path().display());
