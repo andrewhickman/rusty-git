@@ -72,3 +72,49 @@ impl<R: Read> Parser<R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bstr::ByteSlice;
+
+    use crate::object::{Parser, Signature};
+
+    #[test]
+    fn test_parse_signature() {
+        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev> 1596907199 +0100\n".to_vec());
+        let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
+        let buf = parser.finish();
+        let signature = Signature::new(&buf, &signature_raw);
+
+        assert_eq!(signature.name(), "Andrew Hickman");
+        assert_eq!(signature.email(), "me@andrewhickman.dev");
+        assert_eq!(signature.timestamp(), Some(b"1596907199".as_bstr()));
+        assert_eq!(signature.timezone(), Some(b"+0100".as_bstr()));
+    }
+
+    #[test]
+    fn test_parse_signature_no_timezone() {
+        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev> 1596907199\n".to_vec());
+        let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
+        let buf = parser.finish();
+        let signature = Signature::new(&buf, &signature_raw);
+
+        assert_eq!(signature.name(), "Andrew Hickman");
+        assert_eq!(signature.email(), "me@andrewhickman.dev");
+        assert_eq!(signature.timestamp(), Some(b"1596907199".as_bstr()));
+        assert_eq!(signature.timezone(), None);
+    }
+
+    #[test]
+    fn test_parse_signature_no_timestamp() {
+        let mut parser = Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev>\n".to_vec());
+        let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
+        let buf = parser.finish();
+        let signature = Signature::new(&buf, &signature_raw);
+
+        assert_eq!(signature.name(), "Andrew Hickman");
+        assert_eq!(signature.email(), "me@andrewhickman.dev");
+        assert_eq!(signature.timestamp(), None);
+        assert_eq!(signature.timezone(), None);
+    }
+}
