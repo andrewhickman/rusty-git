@@ -113,7 +113,7 @@ impl<R: Read> Parser<R> {
         let end = self.read_header()?;
 
         let kind = self.consume_until(b' ').ok_or(ParseError::InvalidHeader)?;
-        let kind = ObjectKind::from_bytes(kind)?;
+        let kind = ObjectKind::from_bytes(self.bytes(kind))?;
 
         let len = &self.buffer[self.pos..end];
         let len = str::from_utf8(&len).map_err(|_| ParseError::InvalidHeader)?;
@@ -138,12 +138,13 @@ impl<R: Read> Parser<R> {
         }
     }
 
-    pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<&'a [u8]> {
+    pub fn consume_until<'a>(&'a mut self, ch: u8) -> Option<Range<usize>> {
         match memchr(ch, self.remaining_buffer()) {
             Some(ch_pos) => {
-                let result = &self.buffer[self.pos..][..ch_pos];
-                self.pos += ch_pos + 1;
-                Some(result)
+                let start = self.pos;
+                let end = start + ch_pos;
+                self.pos = end + 1;
+                Some(start..end)
             }
             None => None,
         }

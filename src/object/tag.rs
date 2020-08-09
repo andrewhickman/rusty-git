@@ -25,7 +25,7 @@ impl Tag {
         let kind = parser
             .parse_prefix_line(b"type ")?
             .ok_or(ParseError::InvalidTag("type field not found"))?;
-        let kind = ObjectKind::from_bytes(&parser.bytes(kind.clone()))?;
+        let kind = ObjectKind::from_bytes(&parser.bytes(kind))?;
 
         let tag = parser.parse_prefix_line(b"tag ")?
             .ok_or(ParseError::InvalidTag("tag field not found"))?;
