@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 
-use crate::object::{Error, ParseError, Parser};
+use crate::object::{Error, ParseError, Parser, Id};
+use crate::object::database::Reader;
 
 const PACKS_FOLDER: &str = "objects/pack";
 const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -30,6 +31,10 @@ impl PackedObjectDatabase {
             packs: DashMap::new(),
             last_refresh: Mutex::new(None),
         }
+    }
+
+    pub fn read_object(&self, id: &Id) -> Result<Reader, Error> {
+        Err(Error::ObjectNotFound(*id))
     }
 
     fn refresh(&self) -> Result<(), Error> {
