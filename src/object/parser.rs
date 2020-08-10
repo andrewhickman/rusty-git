@@ -1,4 +1,4 @@
-use std::io::{self, Read};
+use std::io;
 use std::ops::Range;
 use std::slice::SliceIndex;
 use std::str::{self, FromStr};
@@ -60,40 +60,12 @@ pub struct Header {
     pub len: usize,
 }
 
-impl<R: Read> Parser<R> {
+impl<R: io::Read> Parser<R> {
     pub fn new(reader: R) -> Self {
         Parser {
             buffer: Vec::new(),
             reader,
             pos: 0,
-        }
-    }
-
-    pub fn pos(&self) -> usize {
-        self.pos
-    }
-
-    pub fn bytes<I>(&self, index: I) -> &I::Output
-    where
-        I: SliceIndex<[u8]>,
-    {
-        self.buffer.get(index).expect("invalid index")
-    }
-
-    pub fn remaining(&self) -> usize {
-        self.remaining_buffer().len()
-    }
-
-    pub fn finished(&self) -> bool {
-        self.remaining_buffer().is_empty()
-    }
-
-    pub fn advance(&mut self, len: usize) -> bool {
-        if self.remaining() < len {
-            false
-        } else {
-            self.pos += len;
-            true
         }
     }
 
@@ -126,6 +98,87 @@ impl<R: Read> Parser<R> {
         self.pos = end + 1;
 
         Ok(Header { kind, len })
+    }
+
+    fn read_header(&mut self) -> Result<usize, ParseError> {
+        debug_assert!(self.buffer.is_empty());
+
+        self.buffer.resize(MAX_HEADER_LEN, 0);
+
+        let mut len = 0;
+        while !self.buffer[len..].is_empty() {
+            match self.reader.read(&mut self.buffer[len..]) {
+                Ok(0) => return Err(ParseError::InvalidHeader),
+                Ok(read) => {
+                    let new_len = len + read;
+                    if let Some(header_end) = memchr(b'\0', &self.buffer[len..new_len]) {
+                        self.buffer.truncate(new_len);
+                        return Ok(len + header_end);
+                    }
+                    len = new_len;
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(err.into()),
+            }
+        }
+
+        return Err(ParseError::InvalidHeader);
+    }
+
+    fn read_body(&mut self, header: &Header) -> Result<(), ParseError> {
+        let start = self.pos;
+        let end = start
+            .checked_add(header.len)
+            .ok_or(ParseError::InvalidLength)?;
+
+        self.buffer.reserve(end.saturating_sub(self.buffer.len()));
+        self.reader.read_to_end(&mut self.buffer)?;
+
+        if self.buffer.len() != end {
+            return Err(ParseError::InvalidLength);
+        }
+
+        Ok(())
+    }
+}
+
+impl Parser<()> {
+    pub fn from_bytes(buffer: impl Into<Vec<u8>>) -> Self {
+        Parser {
+            buffer: buffer.into(),
+            pos: 0,
+            reader: (),
+        }
+    }
+}
+
+impl<R> Parser<R> {
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
+    pub fn bytes<I>(&self, index: I) -> &I::Output
+    where
+        I: SliceIndex<[u8]>,
+    {
+        self.buffer.get(index).expect("invalid index")
+    }
+
+    pub fn remaining(&self) -> usize {
+        self.remaining_buffer().len()
+    }
+
+    pub fn finished(&self) -> bool {
+        self.remaining_buffer().is_empty()
+    }
+
+    pub fn advance(&mut self, len: usize) -> bool {
+        if self.remaining() < len {
+            false
+        } else {
+            self.pos += len;
+            true
+        }
     }
 
     pub fn finish(self) -> Vec<u8> {
@@ -187,47 +240,6 @@ impl<R: Read> Parser<R> {
     fn remaining_buffer(&self) -> &[u8] {
         &self.buffer[self.pos..]
     }
-
-    fn read_header(&mut self) -> Result<usize, ParseError> {
-        debug_assert!(self.buffer.is_empty());
-
-        self.buffer.resize(MAX_HEADER_LEN, 0);
-
-        let mut len = 0;
-        while !self.buffer[len..].is_empty() {
-            match self.reader.read(&mut self.buffer[len..]) {
-                Ok(0) => return Err(ParseError::InvalidHeader),
-                Ok(read) => {
-                    let new_len = len + read;
-                    if let Some(header_end) = memchr(b'\0', &self.buffer[len..new_len]) {
-                        self.buffer.truncate(new_len);
-                        return Ok(len + header_end);
-                    }
-                    len = new_len;
-                }
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(err.into()),
-            }
-        }
-
-        return Err(ParseError::InvalidHeader);
-    }
-
-    fn read_body(&mut self, header: &Header) -> Result<(), ParseError> {
-        let start = self.pos;
-        let end = start
-            .checked_add(header.len)
-            .ok_or(ParseError::InvalidLength)?;
-
-        self.buffer.reserve(end.saturating_sub(self.buffer.len()));
-        self.reader.read_to_end(&mut self.buffer)?;
-
-        if self.buffer.len() != end {
-            return Err(ParseError::InvalidLength);
-        }
-
-        Ok(())
-    }
 }
 
 impl ObjectKind {
@@ -239,15 +251,6 @@ impl ObjectKind {
             b"tag" => Ok(ObjectKind::Tag),
             _ => Err(ParseError::UnknownType),
         }
-    }
-}
-
-#[cfg(test)]
-impl Parser<io::Cursor<Vec<u8>>> {
-    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
-        let mut parser = Parser::new(io::Cursor::new(bytes.into()));
-        parser.reader.read_to_end(&mut parser.buffer).unwrap();
-        parser
     }
 }
 

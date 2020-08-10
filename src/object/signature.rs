@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
@@ -60,7 +59,7 @@ impl<'a> Signature<'a> {
     }
 }
 
-impl<R: Read> Parser<R> {
+impl<R> Parser<R> {
     pub fn parse_signature(&mut self, prefix: &[u8]) -> Result<Option<SignatureRaw>, ParseError> {
         if let Some(range) = self.parse_prefix_line(prefix)? {
             if Signature::is_valid(self.bytes(range.clone())) {

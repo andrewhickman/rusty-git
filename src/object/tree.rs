@@ -1,5 +1,4 @@
 use std::fmt;
-use std::io::Read;
 use std::ops::Range;
 use std::str;
 
@@ -25,7 +24,7 @@ struct TreeEntryRaw {
 }
 
 impl Tree {
-    pub fn parse<R: Read>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    pub fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
         let mut entries = Vec::with_capacity(parser.remaining() / 140);
 
         while !parser.finished() {

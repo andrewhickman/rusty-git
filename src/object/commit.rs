@@ -1,5 +1,4 @@
 use std::fmt;
-use std::io::Read;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
@@ -18,7 +17,7 @@ pub struct Commit {
 }
 
 impl Commit {
-    pub fn parse<R: Read>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    pub fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
         let tree = parser
             .parse_hex_id_line(b"tree ")?
             .ok_or(ParseError::InvalidCommit)?;
