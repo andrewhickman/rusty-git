@@ -1,14 +1,12 @@
-#[cfg(unix)]
-use std::ffi::OsStr;
-
-#[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
-
 use std::fs;
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
-use std::str;
+
+#[cfg(unix)]
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
 
 use crate::reference::{Error, Reference};
 
@@ -127,14 +125,14 @@ impl ReferenceDatabase {
     #[cfg(windows)]
     fn bytes_to_path(bytes: &[u8]) -> Result<&Path, Error> {
         Ok(Path::new(
-            str::from_utf8(bytes).map_err(|_| Error::ReferenceNameInvalidUtf8)?,
+            std::str::from_utf8(bytes).map_err(|_| Error::ReferenceNameInvalidUtf8)?,
         ))
     }
 
     #[cfg(unix)]
     fn bytes_to_path(bytes: &[u8]) -> Result<&Path, Error> {
         Ok(OsStr::from_bytes(bytes)
-            .to_path()
-            .map_err(|_| Error::ReferenceNameInvalidUtf8)?)
+            .map_err(|_| Error::ReferenceNameInvalidUtf8)?
+            .as_ref())
     }
 }
