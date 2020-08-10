@@ -1,4 +1,5 @@
 mod loose;
+mod packed;
 
 use std::io;
 use std::path::Path;

@@ -2,7 +2,10 @@ use std::io;
 use std::ops::Range;
 use std::slice::SliceIndex;
 use std::str::{self, FromStr};
+use std::path::{Path, PathBuf};
+use std::mem::size_of;
 
+use byteorder::{NetworkEndian, ByteOrder};
 use memchr::memchr;
 use thiserror::Error;
 
@@ -38,6 +41,8 @@ pub enum ParseError {
     InvalidId,
     #[error("an tag object is invalid: {0}")]
     InvalidTag(&'static str),
+    #[error("unknown pack format version")]
+    UnknownPackVersion,
     #[error("io error reading object")]
     Io(
         #[from]
@@ -150,6 +155,10 @@ impl Parser<()> {
             reader: (),
         }
     }
+
+    pub fn from_file(path: impl AsRef<Path> + Into<PathBuf>) -> io::Result<Self> {
+        Ok(Parser::from_bytes(fs_err::read(path)?))
+    }
 }
 
 impl<R> Parser<R> {
@@ -203,6 +212,28 @@ impl<R> Parser<R> {
                 Some(start..end)
             }
             None => None,
+        }
+    }
+
+    pub fn consume_u32(&mut self, value: u32) -> bool {
+        let len = size_of::<u32>();
+        if self.remaining() < len || NetworkEndian::read_u32(self.remaining_buffer()) != value {
+            false
+        } else {
+            self.pos += len;
+            true
+        }
+    }
+
+    // Consume 4 bytes and convert them from network-endian to native-endian format.
+    pub fn parse_u32(&mut self) -> Result<u32, ParseError> {
+        let len = size_of::<u32>();
+        if self.remaining() < len  {
+            Err(ParseError::UnexpectedEof)
+        } else {
+            let value = NetworkEndian::read_u32(self.remaining_buffer());
+            self.pos += len;
+            Ok(value)
         }
     }
 
