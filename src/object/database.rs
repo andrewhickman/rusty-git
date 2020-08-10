@@ -3,8 +3,8 @@ mod loose;
 use std::io;
 use std::path::Path;
 
-use crate::object::{Error, Id, Object};
 use self::loose::LooseObjectDatabase;
+use crate::object::{Error, Id, Object};
 
 #[derive(Debug)]
 pub struct ObjectDatabase {
@@ -14,7 +14,7 @@ pub struct ObjectDatabase {
 impl ObjectDatabase {
     pub fn open(dotgit: &Path) -> Self {
         ObjectDatabase {
-            loose: LooseObjectDatabase::open(dotgit)
+            loose: LooseObjectDatabase::open(dotgit),
         }
     }
 

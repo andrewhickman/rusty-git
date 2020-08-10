@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
+use filetime::{set_file_mtime, FileTime};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -12,12 +13,14 @@ const OBJECTS_FOLDER: &str = "objects";
 
 #[derive(Debug)]
 pub struct LooseObjectDatabase {
-    path: PathBuf
+    path: PathBuf,
 }
 
 impl LooseObjectDatabase {
     pub fn open(path: &Path) -> Self {
-        LooseObjectDatabase { path: path.join(OBJECTS_FOLDER) }
+        LooseObjectDatabase {
+            path: path.join(OBJECTS_FOLDER),
+        }
     }
 
     pub fn read_object(&self, id: &Id) -> Result<impl io::Read, Error> {
@@ -49,7 +52,10 @@ impl LooseObjectDatabase {
         path.push(file);
         let file = match OpenOptions::new().create_new(true).write(true).open(&path) {
             Ok(file) => fs_err::File::from_parts(file, path),
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Ok(id),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
+                let _ = set_file_mtime(path, FileTime::now());
+                return Ok(id);
+            }
             Err(err) => return Err(err.into()),
         };
 
@@ -66,13 +72,13 @@ fn object_path_parts(hex: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::create_dir;
+    use std::fs::{create_dir, metadata};
     use std::io::Read;
 
-    use proptest::{proptest, collection::vec, arbitrary::any, prop_assert_eq};
+    use proptest::{arbitrary::any, collection::vec, prop_assert_eq, proptest};
     use tempdir::TempDir;
 
-    use super::{LooseObjectDatabase, OBJECTS_FOLDER};
+    use super::{LooseObjectDatabase, OBJECTS_FOLDER, object_path_parts};
 
     proptest! {
         #[test]
@@ -89,5 +95,25 @@ mod tests {
 
             prop_assert_eq!(read_bytes, bytes);
         }
+    }
+
+    #[test]
+    fn updates_file_mtime_on_already_exists() {
+        let tempdir = TempDir::new("rusty_git_odb_loose_tests").unwrap();
+        let odb_path = tempdir.path().join(OBJECTS_FOLDER);
+        create_dir(&odb_path).unwrap();
+        let db = LooseObjectDatabase::open(tempdir.path());
+
+        let id = db.write_object(b"hello").unwrap();
+        let hex = id.to_hex();
+        let (dir, file) = object_path_parts(&hex);
+        let path = odb_path.join(dir).join(file);
+
+        let mtime1 = metadata(&path).unwrap().modified().unwrap();
+
+        assert_eq!(db.write_object(b"hello").unwrap(), id);
+        let mtime2 = metadata(&path).unwrap().modified().unwrap();
+
+        assert_ne!(mtime1, mtime2);
     }
 }
