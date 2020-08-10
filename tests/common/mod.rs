@@ -10,12 +10,9 @@ use std::str;
 
 use tempdir::TempDir;
 
-pub fn test_create_file(path: &Path, content: &[u8]) -> PathBuf {
-    let file_name = "hello_world.txt";
-    let mut file = File::create(path.join(file_name)).expect("failed to create hello world file");
-
-    file.write_all(content)
-        .expect("failed to write to hello world file");
+pub fn test_write_file(path: &Path, content: &[u8], file_name: &str) -> PathBuf {
+    let mut file = File::create(path.join(file_name)).expect("failed to create file");
+    file.write_all(content).expect("failed to write to file");
 
     path.join(file_name)
 }
@@ -43,6 +40,16 @@ pub fn git_log(cwd: &Path, args: &[&str]) -> Output {
         .unwrap();
     assert!(output.status.success());
     output
+}
+
+pub fn git_branch(cwd: &Path, name: &str) {
+    assert!(Command::new("git")
+        .current_dir(cwd)
+        .arg("branch")
+        .arg(name)
+        .status()
+        .unwrap()
+        .success())
 }
 
 pub fn git_commit(cwd: &Path, message: &str) {
@@ -123,7 +130,7 @@ where
     T: FnOnce(&Path) + panic::UnwindSafe,
 {
     run_test(|path| {
-        let test_file = test_create_file(path, b"Hello world!");
+        let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
 

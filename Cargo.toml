@@ -20,6 +20,7 @@ fs-err = "2.3.0"
 memchr = "2.3.3"
 bstr = "0.2.13"
 filetime = "0.2.12"
+pathdiff = "0.2.0"
 
 [dev-dependencies]
 anyhow = "1"

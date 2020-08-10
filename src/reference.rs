@@ -7,7 +7,8 @@ use bstr::ByteSlice;
 use std::io::{self, Cursor};
 use thiserror::Error;
 
-use crate::object::Id;
+use crate::object::{Id, Object};
+use crate::repository::Repository;
 
 pub use self::database::ReferenceDatabase;
 pub use self::direct::Direct;
@@ -35,6 +36,12 @@ pub struct Reference {
 pub enum Error {
     #[error("reference not found")]
     ReferenceNotFound,
+    #[error(
+        "reference was stored as invalid Utf16, on windows reference names must be valid utf16"
+    )]
+    ReferenceNameInvalidUtf16,
+    #[error("reference was given as invalid Utf8")]
+    ReferenceNameInvalidUtf8,
     #[error("the reference is invalid")]
     InvalidReference(
         #[source]
@@ -83,8 +90,11 @@ impl Reference {
         }
     }
 
-    pub fn peel(&self) -> Option<Id> {
-        self.data.peel()
+    pub fn peel(&self, repo: &Repository) -> Object {
+        match self.data.target() {
+            ReferenceTarget::Symbolic(s) => s.peel(repo),
+            ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
+        }
     }
 
     pub fn target(&self) -> &ReferenceTarget {

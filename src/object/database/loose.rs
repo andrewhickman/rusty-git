@@ -78,7 +78,7 @@ mod tests {
     use proptest::{arbitrary::any, collection::vec, prop_assert_eq, proptest};
     use tempdir::TempDir;
 
-    use super::{LooseObjectDatabase, OBJECTS_FOLDER, object_path_parts};
+    use super::{object_path_parts, LooseObjectDatabase, OBJECTS_FOLDER};
 
     proptest! {
         #[test]

@@ -1,3 +1,4 @@
+use bstr::ByteSlice;
 use std::io::{self, Read};
 use std::ops::Range;
 
@@ -75,16 +76,17 @@ impl<R: Read> Parser<R> {
         let peel = match memchr(b' ', line) {
             Some(ch_pos) => {
                 line = &line[(ch_pos + 1)..];
-                Some(Id::from_bytes(&line[..ch_pos]))
+                Some(Id::from_bytes(&line[..ch_pos].trim_end()))
             }
             None => None,
         };
 
         let target = match memchr(b'/', line) {
             Some(_) => ReferenceTarget::Symbolic(
-                Symbolic::from_bytes(&line).map_err(|_| ParseError::InvalidSymbolicReference)?,
+                Symbolic::from_bytes(&line.trim_end())
+                    .map_err(|_| ParseError::InvalidSymbolicReference)?,
             ),
-            None => ReferenceTarget::Direct(Direct::from_bytes(&line)),
+            None => ReferenceTarget::Direct(Direct::from_bytes(&line.trim_end())),
         };
 
         Ok(ReferenceData { target, peel })

@@ -1,7 +1,9 @@
 use bstr::{BStr, ByteSlice};
 use std::fmt;
 
-use crate::reference::ParseError;
+use crate::object::Object;
+use crate::reference::{ParseError, ReferenceTarget};
+use crate::repository::Repository;
 
 pub struct Symbolic {
     data: Vec<u8>,
@@ -14,12 +16,24 @@ impl Symbolic {
         }
 
         Ok(Symbolic {
-            data: input.trim_end().to_owned(),
+            data: input.to_owned(),
         })
     }
 
     pub fn data(&self) -> &BStr {
         self.data.as_bstr()
+    }
+
+    pub fn peel(&self, repo: &Repository) -> Object {
+        match repo
+            .reference_database()
+            .reference(&self.data)
+            .unwrap()
+            .target()
+        {
+            ReferenceTarget::Symbolic(s) => s.peel(repo),
+            ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
+        }
     }
 }
 

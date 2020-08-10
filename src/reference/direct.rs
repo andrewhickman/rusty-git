@@ -1,4 +1,5 @@
-use crate::object::Id;
+use crate::object::{Error, Id, Object};
+use crate::repository::Repository;
 
 #[derive(Debug)]
 pub struct Direct {
@@ -8,7 +9,11 @@ pub struct Direct {
 impl Direct {
     pub fn from_bytes(bytes: &[u8]) -> Direct {
         Direct {
-            id: Id::from_bytes(&bytes),
+            id: Id::from_hex(bytes).unwrap(),
         }
+    }
+
+    pub fn object(&self, repo: &Repository) -> Result<Object, Error> {
+        repo.object_database().parse_object(&self.id)
     }
 }

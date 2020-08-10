@@ -13,7 +13,7 @@ use self::common::*;
 #[test]
 fn reading_head_produces_same_result_as_libgit2() {
     run_test(|path| {
-        let test_file = test_create_file(path, b"Hello world!");
+        let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
 
@@ -39,9 +39,39 @@ fn reading_head_produces_same_result_as_libgit2() {
 }
 
 #[test]
+fn reading_refs_produces_same_result_as_libgit2() {
+    run_test(|path| {
+        let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
+        git_add_file(path, test_file.as_path());
+        git_commit(path, "Initial commit.");
+        git_branch(path, "test_stuff");
+        test_write_file(path, b"Hello peeps!", "hello_world.txt");
+        git_add_file(path, test_file.as_path());
+        git_commit(path, "Initial commit.");
+        git_tag(path, "v1.0", Some("Version 1.0"));
+
+        let lg2_repo =
+            git2::Repository::open(path).expect("failed to open repository with libgit2");
+
+        let lg2_refs: Vec<(Option<String>, Option<git2::Oid>, Option<git2::Oid>)> = lg2_repo
+            .references()
+            .expect("failed to read references with libgit2")
+            .map(|r| r.unwrap())
+            .map(|r| (r.name().map(|s| s.to_owned()), r.target_peel(), r.target()))
+            .collect();
+
+        let repo = Repository::open(path).expect("failed to open repository with rusty_git");
+        let names = repo.reference_database().reference_names();
+
+        println!("{:?}", lg2_refs);
+        println!("{:?}", names);
+    });
+}
+
+#[test]
 fn reading_file_produces_same_result_as_libgit2() {
     run_test(|path| {
-        let test_file = test_create_file(path, b"Hello world!");
+        let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
 
