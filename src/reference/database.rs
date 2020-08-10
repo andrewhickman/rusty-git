@@ -1,4 +1,9 @@
+#[cfg(unix)]
 use std::ffi::OsStr;
+
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+
 use std::fs;
 use std::io;
 use std::iter::FromIterator;
