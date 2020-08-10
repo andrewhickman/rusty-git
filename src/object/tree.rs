@@ -1,5 +1,6 @@
 use std::fmt;
 use std::io::Read;
+use std::ops::Range;
 use std::str;
 
 use bstr::{BStr, ByteSlice};
@@ -16,12 +17,11 @@ pub struct TreeEntry<'a> {
     entry: TreeEntryRaw,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 struct TreeEntryRaw {
     mode: u16,
     id: usize,
-    filename_start: usize,
-    filename_end: usize,
+    filename: Range<usize>,
 }
 
 impl Tree {
@@ -37,24 +37,16 @@ impl Tree {
             let mode = u16::from_str_radix(mode, 8)
                 .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
 
-            let filename_start = parser.pos();
-            let filename_end = filename_start
-                + parser
-                    .consume_until(0)
-                    .ok_or(ParseError::InvalidTree("invalid filename"))?
-                    .len();
+            let filename = parser
+                .consume_until(0)
+                .ok_or(ParseError::InvalidTree("invalid filename"))?;
 
             let id = parser.pos();
             if !parser.advance(ID_LEN) {
                 return Err(ParseError::InvalidTree("invalid id"));
             }
 
-            entries.push(TreeEntryRaw {
-                mode,
-                filename_start,
-                filename_end,
-                id,
-            })
+            entries.push(TreeEntryRaw { mode, filename, id })
         }
 
         entries.shrink_to_fit();
@@ -65,7 +57,7 @@ impl Tree {
     }
 
     pub fn entries(&self) -> impl ExactSizeIterator<Item = TreeEntry> {
-        self.entries.iter().copied().map(move |entry| TreeEntry {
+        self.entries.iter().cloned().map(move |entry| TreeEntry {
             data: &self.data,
             entry,
         })
@@ -78,11 +70,11 @@ impl<'a> TreeEntry<'a> {
     }
 
     pub fn id(&self) -> Id {
-        Id::from_bytes(&self.data[self.entry.id..(self.entry.id + ID_LEN)])
+        Id::from_bytes(&self.data[self.entry.id..][..ID_LEN])
     }
 
     pub fn filename(&self) -> &'a BStr {
-        self.data[self.entry.filename_start..self.entry.filename_end].as_bstr()
+        self.data[self.entry.filename.clone()].as_bstr()
     }
 }
 

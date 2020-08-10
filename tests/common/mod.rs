@@ -55,7 +55,9 @@ pub fn git_commit(cwd: &Path, message: &str) {
         .arg("commit")
         .arg("--message")
         .arg(message)
-        .status().unwrap().success())
+        .status()
+        .unwrap()
+        .success())
 }
 
 pub fn git_tag(cwd: &Path, name: &str, message: Option<&str>) {
@@ -78,7 +80,9 @@ pub fn git_add_file(cwd: &Path, file: &Path) {
         .current_dir(cwd)
         .arg("add")
         .arg(file)
-        .status().unwrap().success());
+        .status()
+        .unwrap()
+        .success());
 }
 
 pub fn git_get_objects(cwd: &Path) -> Vec<String> {

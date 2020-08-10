@@ -59,13 +59,10 @@ fn reading_file_produces_same_result_as_libgit2() {
 #[test]
 fn reading_commit_produces_same_result_as_libgit2() {
     run_test_in_repo(|path| {
-        let target_object_id = String::from_utf8(
-            git_log(path, &["-1", "--format=%H"])
-                .stdout,
-        )
-        .expect("failed to parse commit hash as utf8")
-        .trim()
-        .to_owned();
+        let target_object_id = String::from_utf8(git_log(path, &["-1", "--format=%H"]).stdout)
+            .expect("failed to parse commit hash as utf8")
+            .trim()
+            .to_owned();
 
         let git_author_name = abuse_git_log_to_get_data(path, "%an");
         let git_author_email = abuse_git_log_to_get_data(path, "%ae");
