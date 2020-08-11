@@ -1,11 +1,11 @@
 use std::io;
+use std::mem::size_of;
 use std::ops::Range;
+use std::path::{Path, PathBuf};
 use std::slice::SliceIndex;
 use std::str::{self, FromStr};
-use std::path::{Path, PathBuf};
-use std::mem::size_of;
 
-use byteorder::{NetworkEndian, ByteOrder};
+use byteorder::{ByteOrder, NetworkEndian};
 use memchr::memchr;
 use thiserror::Error;
 
@@ -43,6 +43,12 @@ pub enum ParseError {
     InvalidTag(&'static str),
     #[error("unknown pack format version")]
     UnknownPackVersion,
+    #[error("pack index is not monotonic")]
+    NonMonotonicPackIndex,
+    #[error("pack index is corrupted")]
+    InvalidPackIndex,
+    #[error("pack is corrupted")]
+    InvalidPack,
     #[error("io error reading object")]
     Io(
         #[from]
@@ -228,7 +234,7 @@ impl<R> Parser<R> {
     // Consume 4 bytes and convert them from network-endian to native-endian format.
     pub fn parse_u32(&mut self) -> Result<u32, ParseError> {
         let len = size_of::<u32>();
-        if self.remaining() < len  {
+        if self.remaining() < len {
             Err(ParseError::UnexpectedEof)
         } else {
             let value = NetworkEndian::read_u32(self.remaining_buffer());
