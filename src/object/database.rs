@@ -6,7 +6,7 @@ use std::path::Path;
 
 use self::loose::LooseObjectDatabase;
 use self::packed::PackedObjectDatabase;
-use crate::object::{Error, Id, Object};
+use crate::object::{Error, Id, Object, ShortId};
 
 type Reader = flate2::read::ZlibDecoder<fs_err::File>;
 
@@ -29,7 +29,7 @@ impl ObjectDatabase {
     }
 
     pub fn read_object(&self, id: &Id) -> Result<impl io::Read, Error> {
-        match self.packed.read_object(id) {
+        match self.packed.read_object(&ShortId::from(*id)) {
             Ok(reader) => return Ok(reader),
             Err(Error::ObjectNotFound(_)) => (),
             Err(err) => return Err(err),
@@ -42,7 +42,7 @@ impl ObjectDatabase {
         }
 
         // object may have just been packed, try again
-        self.packed.read_object(id)
+        self.packed.read_object(&ShortId::from(*id))
     }
 
     pub fn write_object(&self, bytes: &[u8]) -> Result<Id, Error> {

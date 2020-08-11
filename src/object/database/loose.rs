@@ -8,7 +8,7 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 
 use crate::object::database::Reader;
-use crate::object::{Error, Id};
+use crate::object::{Error, Id, ShortId};
 
 const OBJECTS_FOLDER: &str = "objects";
 
@@ -32,7 +32,9 @@ impl LooseObjectDatabase {
 
         match fs_err::File::open(path) {
             Ok(file) => Ok(ZlibDecoder::new(file)),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Err(Error::ObjectNotFound(*id)),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                Err(Error::ObjectNotFound(ShortId::from(*id)))
+            }
             Err(err) => Err(err.into()),
         }
     }
