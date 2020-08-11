@@ -195,6 +195,13 @@ impl IndexFile {
         let pos = self.data.len() - ID_LEN * 2;
         Id::from_bytes(&self.data[pos..][..ID_LEN])
     }
+
+    // TODO: check this
+    #[allow(unused)]
+    fn checksum(&self) -> Id {
+        let pos = self.data.len() - ID_LEN;
+        Id::from_bytes(&self.data[pos..][..ID_LEN])
+    }
 }
 
 impl fmt::Debug for PackFile {
