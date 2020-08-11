@@ -7,6 +7,7 @@ use structopt::StructOpt;
 /// Example (head): cargo run --example refs -- --name head
 /// Example (ref): cargo run --example refs -- --name "refs/heads/master"
 /// Example (peel): cargo run --example refs -- --name "refs/heads/master" --peel
+/// Example (remotes): cargo run --example refs -- --name "refs/remotes/origin/master" --peel
 #[derive(StructOpt)]
 struct Args {
     /// The name of the ref to read

@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs::{self};
 use std::io;
 use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
@@ -86,25 +86,43 @@ impl ReferenceDatabase {
     }
 
     fn reference_names_from_dir(&self, path: &Path) -> Result<Vec<Vec<u8>>, Error> {
-        let files = fs::read_dir(path).map_err(Error::Io)?;
-        Result::<Vec<Vec<u8>>, Error>::from_iter(
-            files
+        let files = self.get_all_file_paths_from_dir(&path)?;
+        files
+            .iter()
+            .map(|p| self.reference_name_from_file(p))
+            .collect()
+    }
+
+    fn get_all_file_paths_from_dir(&self, path: &Path) -> Result<Vec<PathBuf>, Error> {
+        Result::<Vec<PathBuf>, Error>::from_iter(self.get_file_paths_from_dir(&path))
+    }
+
+    fn get_file_paths_from_dir(&self, path: &Path) -> Vec<Result<PathBuf, Error>> {
+        match fs::read_dir(path) {
+            Ok(files) => files
                 .filter(|f| f.is_ok())
                 .map(|f| f.unwrap())
-                .map(|f| f.path())
-                .map(|p| pathdiff::diff_paths(p, &self.path).unwrap())
-                .map(|p| {
-                    ReferenceDatabase::path_to_bytes(&p).map(|bytes| {
-                        bytes
-                            .iter()
-                            .map(|b| match b {
-                                b'\\' => b'/',
-                                _ => *b,
-                            })
-                            .collect::<Vec<u8>>()
-                    })
+                .flat_map(|f| match f.file_type().map(|ft| ft.is_dir()) {
+                    Ok(true) => self.get_file_paths_from_dir(&f.path()),
+                    Ok(false) => vec![f.path()].into_iter().map(Ok).collect(),
+                    Err(error) => vec![Err(Error::Io(error))],
                 })
-                .collect::<Vec<Result<Vec<u8>, Error>>>(),
+                .collect(),
+            Err(error) => vec![Err(Error::Io(error))],
+        }
+    }
+
+    fn reference_name_from_file(&self, path: &Path) -> Result<Vec<u8>, Error> {
+        ReferenceDatabase::path_to_bytes(&pathdiff::diff_paths(path, &self.path).unwrap()).map(
+            |bytes| {
+                bytes
+                    .iter()
+                    .map(|b| match b {
+                        b'\\' => b'/',
+                        _ => *b,
+                    })
+                    .collect()
+            },
         )
     }
 
