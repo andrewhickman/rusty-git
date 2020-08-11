@@ -7,7 +7,7 @@ use bstr::{BStr, ByteSlice};
 use crate::object::{Id, ParseError, Parser, ID_LEN};
 
 pub struct Tree {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     entries: Vec<TreeEntryRaw>,
 }
 

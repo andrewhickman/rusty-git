@@ -7,7 +7,7 @@ use crate::object::signature::{Signature, SignatureRaw};
 use crate::object::{Id, ParseError, Parser, ID_HEX_LEN};
 
 pub struct Commit {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     tree: usize,
     parents: Vec<usize>,
     author: SignatureRaw,

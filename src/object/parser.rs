@@ -190,8 +190,8 @@ impl<R> Parser<R> {
         }
     }
 
-    pub fn finish(self) -> Vec<u8> {
-        self.buffer
+    pub fn finish(self) -> Box<[u8]> {
+        self.buffer.into_boxed_slice()
     }
 
     pub fn consume_bytes(&mut self, bytes: &[u8]) -> bool {

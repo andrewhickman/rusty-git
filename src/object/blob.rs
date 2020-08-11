@@ -6,7 +6,7 @@ use bstr::{BStr, ByteSlice};
 use crate::object::{ParseError, Parser};
 
 pub struct Blob {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     pos: usize,
 }
 

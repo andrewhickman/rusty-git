@@ -8,7 +8,7 @@ use crate::object::signature::{Signature, SignatureRaw};
 use crate::object::{Id, ObjectKind, ParseError, Parser, ID_HEX_LEN};
 
 pub struct Tag {
-    data: Vec<u8>,
+    data: Box<[u8]>,
     tag: Range<usize>,
     object: usize,
     kind: ObjectKind,
