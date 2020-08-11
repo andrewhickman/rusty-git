@@ -48,7 +48,7 @@ pub struct Object {
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("object `{0}` not found")]
-    ObjectNotFound(Box<Id>),
+    ObjectNotFound(Id),
     #[error("the object database is invalid")]
     InvalidObject(
         #[source]
