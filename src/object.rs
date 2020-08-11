@@ -138,6 +138,10 @@ impl Id {
         hex::encode(&self.0)
     }
 
+    fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
     fn starts_with(&self, short_id: &ShortId) -> bool {
         self.0.starts_with(short_id.as_bytes())
     }
@@ -153,22 +157,12 @@ impl ShortId {
     }
 
     fn as_bytes(&self) -> &[u8] {
-        &self.id
-    }
-
-    pub fn is_full(&self) -> bool {
-        self.len as usize == ID_LEN
+        &self.id[..(self.len as usize)]
     }
 
     /// Compare to an id. Partial ids are sorted just before ids they are a prefix of.
     pub fn cmp_id(&self, id: &Id) -> Ordering {
-        Ord::cmp(&self.id, &id.0).then_with(|| {
-            if self.is_full() {
-                Ordering::Equal
-            } else {
-                Ordering::Less
-            }
-        })
+        self.as_bytes().cmp(id.as_bytes())
     }
 
     pub fn from_hex(hex: &[u8]) -> Result<Self, ParseIdError> {
