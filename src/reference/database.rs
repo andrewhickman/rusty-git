@@ -149,8 +149,6 @@ impl ReferenceDatabase {
 
     #[cfg(unix)]
     fn bytes_to_path(bytes: &[u8]) -> Result<&Path, Error> {
-        Ok(OsStr::from_bytes(bytes)
-            .map_err(|_| Error::ReferenceNameInvalidUtf8)?
-            .as_ref())
+        Ok(OsStr::from_bytes(bytes).as_ref())
     }
 }
