@@ -28,8 +28,17 @@ use self::parser::{ObjectKind, ParseError, Parser};
 pub const ID_LEN: usize = 20;
 pub const ID_HEX_LEN: usize = ID_LEN * 2;
 
+pub const SHORT_ID_MIN_LEN: usize = 2;
+pub const SHORT_ID_MIN_HEX_LEN: usize = SHORT_ID_MIN_LEN * 2;
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id([u8; ID_LEN]);
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ShortId {
+    id: [u8; ID_LEN],
+    len: u32,
+}
 
 #[derive(Debug)]
 pub enum ObjectData {
@@ -61,6 +70,14 @@ pub enum Error {
         #[from]
         io::Error,
     ),
+}
+
+#[derive(Debug, Error)]
+pub enum ParseIdError {
+    #[error("ids must be at least {} characters long", SHORT_ID_MIN_HEX_LEN)]
+    TooShort,
+    #[error(transparent)]
+    Hex(#[from] hex::FromHexError),
 }
 
 impl ObjectData {
@@ -106,12 +123,29 @@ impl Id {
         Id(Sha1::new().chain(bytes).finalize().into())
     }
 
-    pub fn from_hex(hex: &[u8]) -> Result<Self, hex::FromHexError> {
-        FromHex::from_hex(hex).map(Id)
+    pub fn from_hex(hex: &[u8]) -> Result<Self, ParseIdError> {
+        Ok(Id(FromHex::from_hex(hex)?))
     }
 
     pub fn to_hex(&self) -> String {
         hex::encode(&self.0)
+    }
+}
+
+impl ShortId {
+    pub fn from_hex(hex: &[u8]) -> Result<Self, ParseIdError> {
+        if hex.len() < SHORT_ID_MIN_HEX_LEN {
+            return Err(ParseIdError::TooShort);
+        }
+
+        let mut id = [0; ID_LEN];
+        let len = hex.len() as u32 / 2;
+        hex::encode_to_slice(hex, &mut id)?;
+        Ok(ShortId { id, len })
+    }
+
+    pub fn to_hex(&self) -> String {
+        hex::encode(&self.id[..(self.len as usize)])
     }
 }
 
@@ -128,9 +162,29 @@ impl fmt::Debug for Id {
 }
 
 impl FromStr for Id {
-    type Err = hex::FromHexError;
+    type Err = ParseIdError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         Id::from_hex(input.as_bytes())
+    }
+}
+
+impl fmt::Display for ShortId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.to_hex().fmt(f)
+    }
+}
+
+impl fmt::Debug for ShortId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl FromStr for ShortId {
+    type Err = ParseIdError;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        ShortId::from_hex(input.as_bytes())
     }
 }
