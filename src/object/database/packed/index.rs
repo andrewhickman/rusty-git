@@ -167,6 +167,10 @@ impl IndexFile {
         Ok((offset, id))
     }
 
+    pub fn count(&self) -> u32 {
+        self.count as u32
+    }
+
     fn level_one(&self) -> &[U32<NetworkEndian>] {
         LayoutVerified::new_slice(&self.data()[..IndexFile::LEVEL_ONE_LEN])
             .unwrap()
@@ -174,27 +178,23 @@ impl IndexFile {
     }
 
     fn entries_v1(&self, range: Range<usize>) -> Result<&[EntryV1], Error> {
-        Ok(
-            LayoutVerified::<_, [EntryV1]>::new_slice(self.entries())
-                .unwrap()
-                .into_slice()
-                .get(range)
-                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
-                    "invalid pack index offset",
-                )))?,
-        )
+        Ok(LayoutVerified::<_, [EntryV1]>::new_slice(self.entries())
+            .unwrap()
+            .into_slice()
+            .get(range)
+            .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
+                "invalid pack index offset",
+            )))?)
     }
 
     fn entries_v2(&self, range: Range<usize>) -> Result<&[EntryV2], Error> {
-        Ok(
-            LayoutVerified::<_, [EntryV2]>::new_slice(self.entries())
-                .unwrap()
-                .into_slice()
-                .get(range)
-                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
-                    "invalid pack index offset",
-                )))?
-        )
+        Ok(LayoutVerified::<_, [EntryV2]>::new_slice(self.entries())
+            .unwrap()
+            .into_slice()
+            .get(range)
+            .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
+                "invalid pack index offset",
+            )))?)
     }
 
     fn entries(&self) -> &[u8] {
@@ -227,7 +227,7 @@ impl IndexFile {
         }
     }
 
-    fn id(&self) -> Id {
+    pub fn id(&self) -> Id {
         let pos = self.data.len() - IndexFile::TRAILER_LEN;
         Id::from_bytes(&self.data[pos..][..ID_LEN])
     }

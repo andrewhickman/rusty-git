@@ -10,7 +10,7 @@ use dashmap::DashMap;
 use self::index::IndexFile;
 use self::pack::PackFile;
 use crate::object::database::Reader;
-use crate::object::{Error, ShortId};
+use crate::object::{Error, ParseError, ShortId};
 
 const PACKS_FOLDER: &str = "objects/pack";
 const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -83,19 +83,19 @@ impl PackedObjectDatabase {
 }
 
 impl Entry {
-    fn open(path: PathBuf) -> Result<Self, Error> {
+    fn open(path: PathBuf) -> Result<Self, ParseError> {
         let pack = PackFile::open(path.with_extension("pack"))?;
         let index = IndexFile::open(path)?;
 
-        // if index.count != entry_count {
-        //     return Err(ParseError::InvalidPackIndex(
-        //         "index count does not match pack file count",
-        //     ));
-        // }
+        if index.count() != pack.count() {
+            return Err(ParseError::InvalidPackIndex(
+                "index count does not match pack file count",
+            ));
+        }
 
-        // if pack_file.index.id() != pack_file.id() {
-        //     return Err(ParseError::InvalidPack);
-        // }
+        if index.id() != pack.id() {
+            return Err(ParseError::InvalidPack);
+        }
 
         Ok(Entry { pack, index })
     }

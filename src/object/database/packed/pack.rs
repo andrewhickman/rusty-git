@@ -1,15 +1,16 @@
-use std::convert::TryFrom;
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::object::database::packed::IndexFile;
+use byteorder::NetworkEndian;
+use zerocopy::byteorder::U32;
+use zerocopy::{FromBytes, LayoutVerified};
+
 use crate::object::database::Reader;
 use crate::object::{Error, Id, ParseError, Parser, ID_LEN};
 
 pub(in crate::object::database::packed) struct PackFile {
-    index: IndexFile,
-    version: PackFileVersion,
     data: Box<[u8]>,
+    version: PackFileVersion,
 }
 
 #[derive(Debug)]
@@ -18,14 +19,19 @@ enum PackFileVersion {
     V3,
 }
 
+#[repr(C)]
+#[derive(Debug, FromBytes)]
+pub struct Header {
+    signature: U32<NetworkEndian>,
+    version: U32<NetworkEndian>,
+    count: U32<NetworkEndian>,
+}
+
 impl PackFile {
     const SIGNATURE: u32 = 0x5041434b;
 
-    pub fn open(index_path: PathBuf) -> Result<PackFile, ParseError> {
-        let pack_path = index_path.with_extension("pack");
-        let index = IndexFile::open(index_path)?;
-
-        let mut parser = Parser::from_file(pack_path)?;
+    pub fn open(path: PathBuf) -> Result<PackFile, ParseError> {
+        let mut parser = Parser::from_file(path)?;
         if !parser.consume_u32(PackFile::SIGNATURE) {
             return Err(ParseError::InvalidPack);
         }
@@ -35,14 +41,13 @@ impl PackFile {
             _ => return Err(ParseError::UnknownPackVersion),
         };
 
-        let _entry_count = usize::try_from(parser.parse_u32()?).or(Err(ParseError::InvalidPack))?;
+        parser.parse_u32().or(Err(ParseError::InvalidPack))?;
 
         if parser.remaining() < ID_LEN {
             return Err(ParseError::InvalidPack);
         }
 
         let pack_file = PackFile {
-            index,
             version,
             data: parser.finish(),
         };
@@ -50,11 +55,22 @@ impl PackFile {
         Ok(pack_file)
     }
 
-    pub fn read_object(&self, offset: usize) -> Result<Reader, Error> {
+    pub fn read_object(&self, _offset: usize) -> Result<Reader, Error> {
         todo!()
     }
 
-    fn id(&self) -> Id {
+    pub fn count(&self) -> u32 {
+        self.header().count.get()
+    }
+
+    fn header(&self) -> &Header {
+        LayoutVerified::<&[u8], Header>::new_from_prefix(&self.data)
+            .unwrap()
+            .0
+            .into_ref()
+    }
+
+    pub fn id(&self) -> Id {
         let pos = self.data.len() - ID_LEN;
         Id::from_bytes(&self.data[pos..][..ID_LEN])
     }
@@ -63,7 +79,6 @@ impl PackFile {
 impl fmt::Debug for PackFile {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("PackFile")
-            .field("index", &self.index)
             .field("version", &self.version)
             .finish()
     }
