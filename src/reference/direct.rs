@@ -1,7 +1,7 @@
 use crate::object::{Error, Id, Object};
 use crate::repository::Repository;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Direct {
     id: Id,
 }

@@ -2,21 +2,27 @@ use bstr::{BStr, ByteSlice};
 use std::fmt;
 
 use crate::object::Object;
-use crate::reference::{ParseError, ReferenceTarget};
+use crate::reference::{Direct, ParseError, ReferenceTarget};
 use crate::repository::Repository;
 
+#[derive(PartialEq)]
 pub struct Symbolic {
+    direct_peel: Option<Direct>,
     data: Vec<u8>,
 }
 
 impl Symbolic {
-    pub fn from_bytes(input: &[u8]) -> Result<Self, ParseError> {
-        if input.is_empty() {
+    pub fn from_bytes(reference: &[u8], peel: Option<&[u8]>) -> Result<Self, ParseError> {
+        if reference.is_empty() {
             return Err(ParseError::EmptySymbolic);
         }
 
         Ok(Symbolic {
-            data: input.to_owned(),
+            data: reference.to_owned(),
+            direct_peel: match peel {
+                Some(bytes) => Some(Direct::from_bytes(bytes)),
+                None => None,
+            },
         })
     }
 
@@ -25,14 +31,17 @@ impl Symbolic {
     }
 
     pub fn peel(&self, repo: &Repository) -> Object {
-        match repo
-            .reference_database()
-            .reference(&self.data)
-            .unwrap()
-            .target()
-        {
-            ReferenceTarget::Symbolic(s) => s.peel(repo),
-            ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
+        match &self.direct_peel {
+            Some(direct) => direct.object(repo).unwrap(),
+            None => match repo
+                .reference_database()
+                .reference(&self.data)
+                .unwrap()
+                .target()
+            {
+                ReferenceTarget::Symbolic(s) => s.peel(repo),
+                ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
+            },
         }
     }
 }

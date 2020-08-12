@@ -7,7 +7,7 @@ use bstr::ByteSlice;
 use std::io::{self, Cursor};
 use thiserror::Error;
 
-use crate::object::{Id, Object};
+use crate::object::Object;
 use crate::repository::Repository;
 
 pub use self::database::ReferenceDatabase;
@@ -15,21 +15,15 @@ pub use self::direct::Direct;
 use self::parser::{ParseError, Parser};
 pub use self::symbolic::Symbolic;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReferenceTarget {
     Direct(Direct),
     Symbolic(Symbolic),
 }
 
 #[derive(Debug)]
-pub struct ReferenceData {
-    target: ReferenceTarget,
-    peel: Option<Id>,
-}
-
-#[derive(Debug)]
 pub struct Reference {
-    data: ReferenceData,
+    target: ReferenceTarget,
 }
 
 #[derive(Debug, Error)]
@@ -56,20 +50,19 @@ pub enum Error {
     ),
 }
 
-impl ReferenceData {
-    pub fn target(&self) -> &ReferenceTarget {
-        &self.target
-    }
-
-    pub fn peel(&self) -> Option<Id> {
-        self.peel
+impl ReferenceTarget {
+    pub fn peel(&self, repo: &Repository) -> Object {
+        match self {
+            ReferenceTarget::Symbolic(s) => s.peel(repo),
+            ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
+        }
     }
 }
 
 impl Reference {
     pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, Error> {
         Ok(Reference {
-            data: Parser::new(reader)
+            target: Parser::new(reader)
                 .parse()
                 .map_err(Error::InvalidReference)?,
         })
@@ -77,7 +70,7 @@ impl Reference {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Reference {
-            data: Parser::new(Cursor::new(bytes))
+            target: Parser::new(Cursor::new(bytes))
                 .parse()
                 .map_err(Error::InvalidReference)?,
         })
@@ -91,13 +84,10 @@ impl Reference {
     }
 
     pub fn peel(&self, repo: &Repository) -> Object {
-        match self.data.target() {
-            ReferenceTarget::Symbolic(s) => s.peel(repo),
-            ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
-        }
+        self.target().peel(repo)
     }
 
     pub fn target(&self) -> &ReferenceTarget {
-        &self.data.target()
+        &self.target
     }
 }

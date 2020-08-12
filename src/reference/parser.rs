@@ -5,8 +5,7 @@ use std::ops::Range;
 use memchr::memchr;
 use thiserror::Error;
 
-use crate::object::Id;
-use crate::reference::{Direct, ReferenceData, ReferenceTarget, Symbolic};
+use crate::reference::{Direct, ReferenceTarget, Symbolic};
 
 const SYMBOLIC_PREFIX: &[u8] = b"ref: ";
 const INVALID_REFERENCE_START: &[u8] = b"\n #";
@@ -58,7 +57,7 @@ impl<R: Read> Parser<R> {
         &self.buffer[self.pos..]
     }
 
-    pub fn parse(mut self) -> Result<ReferenceData, ParseError> {
+    pub fn parse(mut self) -> Result<ReferenceTarget, ParseError> {
         self.reader
             .read_to_end(&mut self.buffer)
             .map_err(ParseError::Io)?;
@@ -75,21 +74,22 @@ impl<R: Read> Parser<R> {
 
         let peel = match memchr(b' ', line) {
             Some(ch_pos) => {
+                let p = line[..ch_pos].trim_end();
                 line = &line[(ch_pos + 1)..];
-                Some(Id::from_bytes(&line[..ch_pos].trim_end()))
+                Some(p)
             }
             None => None,
         };
 
         let target = match memchr(b'/', line) {
             Some(_) => ReferenceTarget::Symbolic(
-                Symbolic::from_bytes(&line.trim_end())
+                Symbolic::from_bytes(&line.trim_end(), peel)
                     .map_err(|_| ParseError::InvalidSymbolicReference)?,
             ),
             None => ReferenceTarget::Direct(Direct::from_bytes(&line.trim_end())),
         };
 
-        Ok(ReferenceData { target, peel })
+        Ok(target)
     }
 
     pub fn read_until_valid_reference_line(&mut self) -> Result<Option<Range<usize>>, ParseError> {
@@ -122,4 +122,48 @@ impl<R: Read> Parser<R> {
             None => None,
         }
     }
+}
+
+#[test]
+fn test_parse_symbolic_reference_directory_format() {
+    fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
+        Parser::new(io::Cursor::new(bytes)).parse()
+    }
+
+    assert_eq!(
+        parse_ref(b"ref: refs/heads/master").unwrap(),
+        ReferenceTarget::Symbolic(Symbolic::from_bytes(b"refs/heads/master", None).unwrap())
+    );
+}
+
+#[test]
+fn test_parse_symbolic_reference_packed_format() {
+    fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
+        Parser::new(io::Cursor::new(bytes)).parse()
+    }
+
+    assert_eq!(
+        parse_ref(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512 refs/remotes/origin/master").unwrap(),
+        ReferenceTarget::Symbolic(
+            Symbolic::from_bytes(
+                b"refs/remotes/origin/master",
+                Some(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512")
+            )
+            .unwrap()
+        )
+    );
+}
+
+#[test]
+fn test_parse_direct_reference_directory_format() {
+    fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
+        Parser::new(io::Cursor::new(bytes)).parse()
+    }
+
+    assert_eq!(
+        parse_ref(b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c").unwrap(),
+        ReferenceTarget::Direct(Direct::from_bytes(
+            b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c"
+        ))
+    );
 }
