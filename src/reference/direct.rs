@@ -1,4 +1,5 @@
-use crate::object::{Error, Id, Object};
+use crate::object::{Id, Object};
+use crate::reference::Error;
 use crate::repository::Repository;
 
 #[derive(Debug, PartialEq)]
@@ -14,6 +15,8 @@ impl Direct {
     }
 
     pub fn object(&self, repo: &Repository) -> Result<Object, Error> {
-        repo.object_database().parse_object(&self.id)
+        repo.object_database()
+            .parse_object(&self.id)
+            .map_err(Error::DereferencingFailed)
     }
 }

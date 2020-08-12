@@ -2,7 +2,7 @@ use bstr::{BStr, ByteSlice};
 use std::fmt;
 
 use crate::object::Object;
-use crate::reference::{Direct, ParseError, ReferenceTarget};
+use crate::reference::{Direct, Error, ParseError};
 use crate::repository::Repository;
 
 #[derive(PartialEq)]
@@ -30,18 +30,10 @@ impl Symbolic {
         self.data.as_bstr()
     }
 
-    pub fn peel(&self, repo: &Repository) -> Object {
+    pub fn peel(&self, repo: &Repository) -> Result<Object, Error> {
         match &self.direct_peel {
-            Some(direct) => direct.object(repo).unwrap(),
-            None => match repo
-                .reference_database()
-                .reference(&self.data)
-                .unwrap()
-                .target()
-            {
-                ReferenceTarget::Symbolic(s) => s.peel(repo),
-                ReferenceTarget::Direct(d) => d.object(repo).unwrap(),
-            },
+            Some(direct) => direct.object(repo),
+            None => repo.reference_database().reference(&self.data)?.peel(repo),
         }
     }
 }
