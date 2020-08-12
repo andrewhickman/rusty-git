@@ -8,7 +8,7 @@ use crate::object::{Id, ParseError, Parser, ID_LEN};
 
 pub struct Tree {
     data: Box<[u8]>,
-    entries: Vec<TreeEntryRaw>,
+    entries: Box<[TreeEntryRaw]>,
 }
 
 pub struct TreeEntry<'a> {
@@ -48,10 +48,9 @@ impl Tree {
             entries.push(TreeEntryRaw { mode, filename, id })
         }
 
-        entries.shrink_to_fit();
         Ok(Tree {
             data: parser.finish(),
-            entries,
+            entries: entries.into_boxed_slice(),
         })
     }
 

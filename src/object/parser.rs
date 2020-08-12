@@ -45,8 +45,8 @@ pub enum ParseError {
     UnknownPackVersion,
     #[error("pack index is not monotonic")]
     NonMonotonicPackIndex,
-    #[error("pack index is corrupted")]
-    InvalidPackIndex,
+    #[error("pack index is corrupted: {0}")]
+    InvalidPackIndex(&'static str),
     #[error("pack is corrupted")]
     InvalidPack,
     #[error("io error reading object")]

@@ -1,13 +1,14 @@
 use std::convert::TryFrom;
 use std::fmt;
+use std::mem::size_of;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::ops::Range;
 
 use byteorder::NetworkEndian;
 use dashmap::DashMap;
-use zerocopy::byteorder::U32;
+use zerocopy::byteorder::{U32, U64};
 use zerocopy::{FromBytes, LayoutVerified};
 
 use crate::object::database::Reader;
@@ -29,7 +30,7 @@ struct IndexFile {
     count: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum IndexFileVersion {
     V1,
     V2,
@@ -42,16 +43,16 @@ enum PackFileVersion {
 }
 
 #[repr(C)]
-#[derive(FromBytes)]
+#[derive(Debug, FromBytes)]
 struct IndexEntryV1 {
+    offset: U32<NetworkEndian>,
     id: Id,
 }
 
 #[repr(C)]
-#[derive(FromBytes)]
+#[derive(Debug, FromBytes)]
 struct IndexEntryV2 {
     id: Id,
-    crc: U32<NetworkEndian>,
 }
 
 #[derive(Debug)]
@@ -87,7 +88,7 @@ impl PackedObjectDatabase {
             }
         }
 
-        return Err(Error::ObjectNotFound(*short_id))
+        return Err(Error::ObjectNotFound(*short_id));
     }
 
     fn refresh(&self) -> Result<bool, Error> {
@@ -95,7 +96,9 @@ impl PackedObjectDatabase {
         // This isn't necessary for correctness, but is just an optimization.
         let mut last_refresh_guard = self.last_refresh.lock().unwrap();
         match *last_refresh_guard {
-            Some(last_refresh) if last_refresh.elapsed() < MAX_REFRESH_INTERVAL => return Ok(false),
+            Some(last_refresh) if last_refresh.elapsed() < MAX_REFRESH_INTERVAL => {
+                return Ok(false)
+            }
             _ => (),
         }
 
@@ -129,7 +132,9 @@ impl PackFile {
         };
         let entry_count = usize::try_from(parser.parse_u32()?).or(Err(ParseError::InvalidPack))?;
         if index.count != entry_count {
-            return Err(ParseError::InvalidPackIndex);
+            return Err(ParseError::InvalidPackIndex(
+                "index count does not match pack file count",
+            ));
         }
 
         if parser.remaining() < ID_LEN {
@@ -164,8 +169,8 @@ impl IndexFile {
     const HEADER_LEN: usize = 8;
     const LEVEL_ONE_COUNT: usize = 256;
     const LEVEL_ONE_LEN: usize = IndexFile::LEVEL_ONE_COUNT * 4;
-    const ENTRY_SIZE_V1: usize = ID_LEN;
-    const ENTRY_SIZE_V2: usize = ID_LEN + 4;
+    const ENTRY_SIZE_V1: usize = size_of::<IndexEntryV1>();
+    const ENTRY_SIZE_V2: usize = size_of::<IndexEntryV2>();
     const TRAILER_LEN: usize = ID_LEN + ID_LEN;
 
     fn open(path: PathBuf) -> Result<IndexFile, ParseError> {
@@ -190,36 +195,38 @@ impl IndexFile {
             }
             count = n;
         }
-        let count = usize::try_from(count).or(Err(ParseError::InvalidPackIndex))?;
+        let count =
+            usize::try_from(count).or(Err(ParseError::InvalidPackIndex("invalid index count")))?;
 
-        let (min_size, max_size) = match version {
-            IndexFileVersion::V1 => {
-                let size = count
-                    .checked_mul(IndexFile::ENTRY_SIZE_V1 + 4)
-                    .ok_or(ParseError::InvalidPackIndex)?
-                    .checked_add(IndexFile::TRAILER_LEN)
-                    .ok_or(ParseError::InvalidPackIndex)?;
-                (size, size)
-            }
-            IndexFileVersion::V2 => {
-                let min_size = count
-                    .checked_mul(IndexFile::ENTRY_SIZE_V2 + 4)
-                    .ok_or(ParseError::InvalidPackIndex)?
-                    .checked_add(IndexFile::TRAILER_LEN)
-                    .ok_or(ParseError::InvalidPackIndex)?;
-                let max_size = min_size
-                    .checked_add(
-                        count
-                            .saturating_sub(1)
-                            .checked_mul(8)
-                            .ok_or(ParseError::InvalidPackIndex)?,
-                    )
-                    .ok_or(ParseError::InvalidPackIndex)?;
-                (min_size, max_size)
-            }
+        let mut min_size = count
+            .checked_mul(version.entry_size() + 4)
+            .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
+            .checked_add(IndexFile::TRAILER_LEN)
+            .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
+        if version == IndexFileVersion::V2 {
+            min_size = count
+                .checked_mul(4)
+                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
+                .checked_add(min_size)
+                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
+        }
+
+        let max_size = match version {
+            IndexFileVersion::V1 => min_size,
+            IndexFileVersion::V2 => min_size
+                .checked_add(
+                    count
+                        .saturating_sub(1)
+                        .checked_mul(8)
+                        .ok_or(ParseError::InvalidPackIndex("invalid index count"))?,
+                )
+                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?,
         };
+
         if parser.remaining() < min_size || parser.remaining() > max_size {
-            return Err(ParseError::InvalidPackIndex);
+            return Err(ParseError::InvalidPackIndex(
+                "index length is an invalid length",
+            ));
         }
 
         Ok(IndexFile {
@@ -230,16 +237,20 @@ impl IndexFile {
     }
 
     fn find_offset(&self, short_id: &ShortId) -> Result<(usize, Id), Error> {
+        let level_one = self.level_one();
         let first_byte = short_id.first_byte() as usize;
-        let offset_end = self.level_one()[first_byte] as usize;
-        let offset_start = self.level_one()[first_byte.saturating_sub(1)] as usize;
+        let index_end = level_one[first_byte].get() as usize;
+        let index_start = match first_byte.checked_sub(1) {
+            Some(prev) => level_one[prev].get() as usize,
+            None => 0,
+        };
 
-        fn binary_search<T: IndexEntry>(
-            entries: &[T],
+        fn binary_search<'a, T: IndexEntry>(
+            entries: &'a [T],
             short_id: &ShortId,
-        ) -> Result<(usize, Id), Error> {
+        ) -> Result<(usize, &'a T), Error> {
             match entries.binary_search_by(|entry| entry.id().cmp_short(short_id)) {
-                Ok(index) => Ok((index, *entries[index].id())),
+                Ok(index) => Ok((index, &entries[index])),
                 Err(index) => {
                     let mut matches = entries[index..]
                         .iter()
@@ -250,40 +261,96 @@ impl IndexFile {
                     if matches.next().is_some() {
                         return Err(Error::Ambiguous(*short_id));
                     }
-                    Ok((index, *entry.id()))
+                    Ok((index, entry))
                 }
             }
         }
 
-        match self.version {
-            IndexFileVersion::V1 => binary_search(self.entries_v1(offset_start..offset_end)?, short_id),
-            IndexFileVersion::V2 => binary_search(self.entries_v2(offset_start..offset_end)?, short_id),
-        }
+        let (offset, id) = match self.version {
+            IndexFileVersion::V1 => {
+                let (_, entry) = binary_search(self.entries_v1(index_start..index_end)?, short_id)?;
+                (u64::from(entry.offset.get()), entry.id)
+            }
+            IndexFileVersion::V2 => {
+                let (index, entry) =
+                    binary_search(self.entries_v2(index_start..index_end)?, short_id)?;
+                let (small_offsets, large_offsets) = self.offsets();
+                let small_offset = small_offsets[index_start + index].get();
+                let offset = if (small_offset & 0x80000000) == 0 {
+                    u64::from(small_offsets[index_start + index].get())
+                } else {
+                    let large_offset_index = usize::try_from(small_offset & 0x7fffffff)
+                        .map_err(|_| ParseError::InvalidPackIndex("invalid offset"))?;
+                    large_offsets
+                        .get(large_offset_index)
+                        .ok_or(ParseError::InvalidPackIndex("invalid offset"))?
+                        .get()
+                };
+                (offset, entry.id)
+            }
+        };
+
+        let offset =
+            usize::try_from(offset).map_err(|_| ParseError::InvalidPackIndex("invalid offset"))?;
+
+        Ok((offset, id))
     }
 
-    fn level_one(&self) -> &[u8] {
-        &self.data()[..IndexFile::LEVEL_ONE_LEN]
+    fn level_one(&self) -> &[U32<NetworkEndian>] {
+        LayoutVerified::new_slice(&self.data()[..IndexFile::LEVEL_ONE_LEN])
+            .unwrap()
+            .into_slice()
     }
 
     fn entries_v1(&self, range: Range<usize>) -> Result<&[IndexEntryV1], Error> {
         Ok(
-            LayoutVerified::<_, [IndexEntryV1]>::new_slice(self.entries(range))
-                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex))?
-                .into_slice(),
+            LayoutVerified::<_, [IndexEntryV1]>::new_slice(self.entries())
+                .unwrap()
+                .into_slice()
+                .get(range)
+                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
+                    "invalid pack index offset",
+                )))?,
         )
     }
 
     fn entries_v2(&self, range: Range<usize>) -> Result<&[IndexEntryV2], Error> {
-        Ok(
-            LayoutVerified::<_, [IndexEntryV2]>::new_slice(self.entries(range))
-                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex))?
-                .into_slice(),
-        )
+        Ok({
+            let entries = LayoutVerified::<_, [IndexEntryV2]>::new_slice(self.entries())
+                .unwrap()
+                .into_slice();
+
+            assert!(entries.is_sorted_by(|x, y| Some(x.id.cmp(&y.id))));
+
+            entries
+                .get(range)
+                .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
+                    "invalid pack index offset",
+                )))?
+        })
     }
 
-    fn entries(&self, range: Range<usize>) -> &[u8] {
+    fn entries(&self) -> &[u8] {
         let data = self.data();
-        &data[IndexFile::LEVEL_ONE_LEN..][..self.count][range]
+        &data[IndexFile::LEVEL_ONE_LEN..][..(self.count * self.version.entry_size())]
+    }
+
+    fn offsets(&self) -> (&[U32<NetworkEndian>], &[U64<NetworkEndian>]) {
+        debug_assert_eq!(self.version, IndexFileVersion::V2);
+
+        let data = self.data();
+        let start = self.count * (IndexFile::ENTRY_SIZE_V2 + 4);
+        let mid = start + self.count * 4;
+        let end = data.len() - IndexFile::TRAILER_LEN;
+
+        (
+            LayoutVerified::new_slice(&data[start..mid])
+                .unwrap()
+                .into_slice(),
+            LayoutVerified::new_slice(&data[mid..end])
+                .unwrap()
+                .into_slice(),
+        )
     }
 
     fn data(&self) -> &[u8] {
@@ -294,15 +361,24 @@ impl IndexFile {
     }
 
     fn id(&self) -> Id {
-        let pos = self.data.len() - ID_LEN * 2;
+        let pos = self.data.len() - IndexFile::TRAILER_LEN;
         Id::from_bytes(&self.data[pos..][..ID_LEN])
     }
 
     // TODO: check this
     #[allow(unused)]
     fn crc(&self) -> Id {
-        let pos = self.data.len() - ID_LEN;
+        let pos = self.data.len() - IndexFile::TRAILER_LEN + ID_LEN;
         Id::from_bytes(&self.data[pos..][..ID_LEN])
+    }
+}
+
+impl IndexFileVersion {
+    fn entry_size(&self) -> usize {
+        match self {
+            IndexFileVersion::V1 => IndexFile::ENTRY_SIZE_V1,
+            IndexFileVersion::V2 => IndexFile::ENTRY_SIZE_V2,
+        }
     }
 }
 
