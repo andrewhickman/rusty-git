@@ -30,8 +30,11 @@ pub struct Header {
 impl PackFile {
     const SIGNATURE: u32 = 0x5041434b;
 
-    pub fn open(path: PathBuf) -> Result<PackFile, ParseError> {
-        let mut parser = Parser::from_file(path)?;
+    pub fn open(path: PathBuf) -> Result<Self, ParseError> {
+        PackFile::parse(Parser::from_file(path)?)
+    }
+
+    fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
         if !parser.consume_u32(PackFile::SIGNATURE) {
             return Err(ParseError::InvalidPack);
         }

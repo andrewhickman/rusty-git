@@ -34,7 +34,7 @@ pub const SHORT_ID_MIN_LEN: usize = 2;
 pub const SHORT_ID_MIN_HEX_LEN: usize = SHORT_ID_MIN_LEN * 2;
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, FromBytes)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, FromBytes)]
 pub struct Id([u8; ID_LEN]);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -183,7 +183,7 @@ impl ShortId {
     }
 
     pub fn to_hex(&self) -> String {
-        hex::encode(&self.id[..(self.len as usize)])
+        hex::encode(self.as_bytes())
     }
 }
 
@@ -232,6 +232,22 @@ impl From<Id> for ShortId {
         ShortId {
             id: id.0,
             len: ID_LEN as u32,
+        }
+    }
+}
+
+impl Error {
+    pub fn is_ambiguous(&self) -> bool {
+        match self {
+            Error::Ambiguous(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            Error::ObjectNotFound(_) => true,
+            _ => false,
         }
     }
 }

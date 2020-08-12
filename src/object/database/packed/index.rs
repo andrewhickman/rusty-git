@@ -44,9 +44,11 @@ impl IndexFile {
     const ENTRY_LEN_V2: usize = size_of::<EntryV2>();
     const TRAILER_LEN: usize = ID_LEN + ID_LEN;
 
-    pub fn open(path: PathBuf) -> Result<IndexFile, ParseError> {
-        let mut parser = Parser::from_file(path)?;
+    pub fn open(path: PathBuf) -> Result<Self, ParseError> {
+        IndexFile::parse(Parser::from_file(path)?)
+    }
 
+    fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
         let version = if parser.consume_u32(IndexFile::SIGNATURE) {
             let version = parser.parse_u32()?;
 
@@ -70,13 +72,13 @@ impl IndexFile {
             usize::try_from(count).or(Err(ParseError::InvalidPackIndex("invalid index count")))?;
 
         let mut min_size = count
-            .checked_mul(version.entry_len() + 4)
+            .checked_mul(version.entry_len())
             .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
             .checked_add(IndexFile::TRAILER_LEN)
             .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
         if version == Version::V2 {
             min_size = count
-                .checked_mul(4)
+                .checked_mul(8)
                 .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
                 .checked_add(min_size)
                 .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
@@ -205,7 +207,7 @@ impl IndexFile {
     fn offsets(&self) -> (&[U32<NetworkEndian>], &[U64<NetworkEndian>]) {
         debug_assert_eq!(self.version, Version::V2);
 
-        let data = self.data();
+        let data = &self.data()[IndexFile::LEVEL_ONE_LEN..];
         let start = self.count * (IndexFile::ENTRY_LEN_V2 + 4);
         let mid = start + self.count * 4;
         let end = data.len() - IndexFile::TRAILER_LEN;
@@ -278,6 +280,7 @@ impl fmt::Debug for IndexFile {
 #[cfg(test)]
 mod tests {
     use std::mem::{align_of, size_of};
+    use std::str::FromStr;
 
     use super::*;
 
@@ -287,5 +290,146 @@ mod tests {
         assert_eq!(align_of::<EntryV1>(), 1);
         assert_eq!(size_of::<EntryV2>(), IndexFile::ENTRY_LEN_V2);
         assert_eq!(align_of::<EntryV2>(), 1);
+    }
+
+    fn id(s: &str) -> Id {
+        Id::from_str(s).unwrap()
+    }
+
+    fn short(s: &str) -> ShortId {
+        ShortId::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn parse_v1() {
+        let mut bytes = Vec::new();
+
+        for _ in 0..32 {
+            bytes.extend(b"\x00\x00\x00\x00");
+        }
+        for _ in 32..64 {
+            bytes.extend(b"\x00\x00\x00\x01");
+        }
+        for _ in 64..IndexFile::LEVEL_ONE_COUNT {
+            bytes.extend(b"\x00\x00\x00\x03");
+        }
+
+        bytes.extend(b"\x00\x00\x00\x24");
+        bytes.extend(id("2057bab324290cc76e3669cd24ff7345e907fd13").as_bytes());
+        bytes.extend(b"\x00\x00\x00\x42");
+        bytes.extend(id("4046b3b7c67ec0dedab9c5952d630b241eebf820").as_bytes());
+        bytes.extend(b"\x00\x00\x00\x61");
+        bytes.extend(id("4046d56282d07200068541199583f49c65f707f7").as_bytes());
+
+        bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
+        bytes.extend(Id::default().as_bytes());
+
+        let parser = Parser::from_bytes(bytes);
+
+        let index = IndexFile::parse(parser).unwrap();
+
+        assert_eq!(index.count, 3);
+        assert_eq!(index.version, Version::V1);
+        assert_eq!(
+            index.find_offset(&short("2057bab324290cc7")).unwrap(),
+            (0x24, id("2057bab324290cc76e3669cd24ff7345e907fd13"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("2057bab324290cc76e3669cd24ff7345e907fd13"))
+                .unwrap(),
+            (0x24, id("2057bab324290cc76e3669cd24ff7345e907fd13"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("4046b3b7c67ec0dedab9c5952d630b241eebf820"))
+                .unwrap(),
+            (0x42, id("4046b3b7c67ec0dedab9c5952d630b241eebf820"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("4046d56282d07200068541199583f49c65f707f7"))
+                .unwrap(),
+            (0x61, id("4046d56282d07200068541199583f49c65f707f7"))
+        );
+        assert!(index
+            .find_offset(&ShortId::from_str("4046").unwrap())
+            .unwrap_err()
+            .is_ambiguous());
+        assert!(index
+            .find_offset(&ShortId::from_str("4048").unwrap())
+            .unwrap_err()
+            .is_not_found());
+    }
+
+    #[test]
+    fn parse_v2() {
+        let mut bytes = Vec::new();
+        bytes.extend(b"\xff\x74\x4f\x63");
+        bytes.extend(b"\x00\x00\x00\x02");
+
+        for _ in 0..32 {
+            bytes.extend(b"\x00\x00\x00\x00");
+        }
+        for _ in 32..64 {
+            bytes.extend(b"\x00\x00\x00\x01");
+        }
+        for _ in 64..IndexFile::LEVEL_ONE_COUNT {
+            bytes.extend(b"\x00\x00\x00\x03");
+        }
+
+        bytes.extend(id("2057bab324290cc76e3669cd24ff7345e907fd13").as_bytes());
+        bytes.extend(id("4046b3b7c67ec0dedab9c5952d630b241eebf820").as_bytes());
+        bytes.extend(id("4046d56282d07200068541199583f49c65f707f7").as_bytes());
+
+        bytes.extend(b"\x00\x00\x00\x00");
+        bytes.extend(b"\x00\x00\x00\x00");
+        bytes.extend(b"\x00\x00\x00\x00");
+
+        bytes.extend(b"\x00\x00\x00\x24");
+        bytes.extend(b"\x80\x00\x00\x00");
+        bytes.extend(b"\x00\x00\x00\x61");
+
+        bytes.extend(b"\x00\x00\x00\x00\x00\x00\x00\x42");
+
+        bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
+        bytes.extend(Id::default().as_bytes());
+
+        let parser = Parser::from_bytes(bytes);
+
+        let index = IndexFile::parse(parser).unwrap();
+
+        assert_eq!(index.count, 3);
+        assert_eq!(index.version, Version::V2);
+        assert_eq!(
+            index.find_offset(&short("2057bab324290cc7")).unwrap(),
+            (0x24, id("2057bab324290cc76e3669cd24ff7345e907fd13"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("2057bab324290cc76e3669cd24ff7345e907fd13"))
+                .unwrap(),
+            (0x24, id("2057bab324290cc76e3669cd24ff7345e907fd13"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("4046b3b7c67ec0dedab9c5952d630b241eebf820"))
+                .unwrap(),
+            (0x42, id("4046b3b7c67ec0dedab9c5952d630b241eebf820"))
+        );
+        assert_eq!(
+            index
+                .find_offset(&short("4046d56282d07200068541199583f49c65f707f7"))
+                .unwrap(),
+            (0x61, id("4046d56282d07200068541199583f49c65f707f7"))
+        );
+        assert!(index
+            .find_offset(&ShortId::from_str("4046").unwrap())
+            .unwrap_err()
+            .is_ambiguous());
+        assert!(index
+            .find_offset(&ShortId::from_str("4048").unwrap())
+            .unwrap_err()
+            .is_not_found());
     }
 }
