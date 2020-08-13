@@ -77,8 +77,11 @@ impl Header {
 
 impl<R: Read> Buffer<R> {
     pub(in crate::object) fn read_object_header(&mut self) -> Result<Header, ParseHeaderError> {
-        let range = self.read_until_byte(b'\0', Header::MAX_LEN)?
-            .ok_or(ParseHeaderError::Other("the end of the header was not found"))?;
+        let range =
+            self.read_until_byte(b'\0', Header::MAX_LEN)?
+                .ok_or(ParseHeaderError::Other(
+                    "the end of the header was not found",
+                ))?;
         let mut parser = self.parser(range);
         let header = parser.parse_object_header()?;
         debug_assert!(parser.finished());
@@ -88,7 +91,7 @@ impl<R: Read> Buffer<R> {
     pub(in crate::object) fn read_object(mut self) -> Result<ObjectData, ParseObjectError> {
         let header = self.read_object_header()?;
         let parser = self
-            .read_into_parser(header.len)
+            .read_to_end_into_parser(header.len)
             .map_err(ParseHeaderError::from)?;
         parser.parse_object_body(header.kind)
     }
@@ -109,6 +112,9 @@ impl Parser<Box<[u8]>> {
             ObjectKind::Tag => Tag::parse(self)
                 .map(ObjectData::Tag)
                 .map_err(ParseObjectError::InvalidTag),
+            _ => Err(ParseObjectError::InvalidHeader(
+                ParseHeaderError::UnsupportedObjectKind,
+            )),
         }
     }
 }

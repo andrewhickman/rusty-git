@@ -111,7 +111,13 @@ impl PackedObjectDatabase {
         }
 
         match result {
-            Some((entry, offset)) => entry.pack.read_object(offset),
+            Some((entry, offset)) => match entry.pack.read_object(offset) {
+                Ok(reader) => Ok(reader),
+                Err(err) => Err(ReadPackedError::ReadEntry(ReadEntryError {
+                    name: entry.name.clone(),
+                    kind: ReadEntryErrorKind::ReadPackFile(err),
+                })),
+            },
             None => Err(ReadPackedError::NotFound),
         }
     }

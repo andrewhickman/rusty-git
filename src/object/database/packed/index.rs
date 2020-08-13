@@ -10,7 +10,8 @@ use thiserror::Error;
 use zerocopy::byteorder::{U32, U64};
 use zerocopy::{FromBytes, LayoutVerified};
 
-use crate::object::{Id, Parser, ShortId, ID_LEN};
+use crate::object::{Id, ShortId, ID_LEN};
+use crate::parse::Parser;
 
 pub(in crate::object::database::packed) struct IndexFile {
     data: Box<[u8]>,
@@ -62,10 +63,10 @@ struct EntryV2 {
 }
 
 impl IndexFile {
-    const SIGNATURE: u32 = 0xff744f63;
+    const SIGNATURE: u32 = u32::from_be_bytes(*b"\xfftOc");
     const HEADER_LEN: usize = 8;
-    const LEVEL_ONE_COUNT: usize = 256;
-    const LEVEL_ONE_LEN: usize = IndexFile::LEVEL_ONE_COUNT * 4;
+    const FAN_OUT_COUNT: usize = 256;
+    const FAN_OUT_LEN: usize = IndexFile::FAN_OUT_COUNT * 4;
     const ENTRY_LEN_V1: usize = size_of::<EntryV1>();
     const ENTRY_LEN_V2: usize = size_of::<EntryV2>();
     const TRAILER_LEN: usize = ID_LEN + ID_LEN;
@@ -90,7 +91,7 @@ impl IndexFile {
         };
 
         let mut count = 0;
-        for _ in 0..IndexFile::LEVEL_ONE_COUNT {
+        for _ in 0..IndexFile::FAN_OUT_COUNT {
             let n = parser
                 .parse_u32()
                 .map_err(|_| ReadIndexFileError::Other("file is too short"))?;
@@ -140,12 +141,12 @@ impl IndexFile {
         })
     }
 
-    pub fn find_offset(&self, short_id: &ShortId) -> Result<(usize, Id), FindIndexOffsetError> {
-        let level_one = self.level_one();
+    pub fn find_offset(&self, short_id: &ShortId) -> Result<(u64, Id), FindIndexOffsetError> {
+        let fan_out = self.fan_out();
         let first_byte = short_id.first_byte() as usize;
-        let index_end = level_one[first_byte].get() as usize;
+        let index_end = fan_out[first_byte].get() as usize;
         let index_start = match first_byte.checked_sub(1) {
-            Some(prev) => level_one[prev].get() as usize,
+            Some(prev) => fan_out[prev].get() as usize,
             None => 0,
         };
 
@@ -194,9 +195,6 @@ impl IndexFile {
             }
         };
 
-        let offset = usize::try_from(offset)
-            .map_err(|_| FindIndexOffsetError::read_index_file("invalid offset"))?;
-
         Ok((offset, id))
     }
 
@@ -204,8 +202,8 @@ impl IndexFile {
         self.count as u32
     }
 
-    fn level_one(&self) -> &[U32<NetworkEndian>] {
-        LayoutVerified::new_slice(&self.data()[..IndexFile::LEVEL_ONE_LEN])
+    fn fan_out(&self) -> &[U32<NetworkEndian>] {
+        LayoutVerified::new_slice(&self.data()[..IndexFile::FAN_OUT_LEN])
             .unwrap()
             .into_slice()
     }
@@ -228,13 +226,13 @@ impl IndexFile {
 
     fn entries(&self) -> &[u8] {
         let data = self.data();
-        &data[IndexFile::LEVEL_ONE_LEN..][..(self.count * self.version.entry_len())]
+        &data[IndexFile::FAN_OUT_LEN..][..(self.count * self.version.entry_len())]
     }
 
     fn offsets(&self) -> (&[U32<NetworkEndian>], &[U64<NetworkEndian>]) {
         debug_assert_eq!(self.version, Version::V2);
 
-        let data = &self.data()[IndexFile::LEVEL_ONE_LEN..];
+        let data = &self.data()[IndexFile::FAN_OUT_LEN..];
         let start = self.count * (IndexFile::ENTRY_LEN_V2 + 4);
         let mid = start + self.count * 4;
         let end = data.len() - IndexFile::TRAILER_LEN;
@@ -359,7 +357,7 @@ mod tests {
         for _ in 32..64 {
             bytes.extend(b"\x00\x00\x00\x01");
         }
-        for _ in 64..IndexFile::LEVEL_ONE_COUNT {
+        for _ in 64..IndexFile::FAN_OUT_COUNT {
             bytes.extend(b"\x00\x00\x00\x03");
         }
 
@@ -423,7 +421,7 @@ mod tests {
         for _ in 32..64 {
             bytes.extend(b"\x00\x00\x00\x01");
         }
-        for _ in 64..IndexFile::LEVEL_ONE_COUNT {
+        for _ in 64..IndexFile::FAN_OUT_COUNT {
             bytes.extend(b"\x00\x00\x00\x03");
         }
 

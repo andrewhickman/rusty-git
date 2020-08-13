@@ -1,11 +1,13 @@
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::ops::{Index, Range};
 use std::slice::SliceIndex;
 
 use byteorder::{ByteOrder, NetworkEndian};
 use memchr::memchr;
+use zerocopy::byteorder::U32;
+use zerocopy::{FromBytes, LayoutVerified};
 
-use crate::object::{Id, ID_HEX_LEN};
+use crate::object::{Id, ID_HEX_LEN, ID_LEN};
 use crate::parse::Error;
 
 pub(crate) struct Parser<B> {
@@ -87,16 +89,48 @@ where
         }
     }
 
-    // Consume 4 bytes and convert them from network-endian to native-endian format.
-    pub fn parse_u32(&mut self) -> Result<u32, Error> {
-        let len = size_of::<u32>();
+    pub fn parse_struct<T>(&mut self) -> Result<&T, Error>
+    where
+        T: FromBytes,
+    {
+        assert_eq!(align_of::<T>(), 1);
+        let len = size_of::<T>();
+
         if self.remaining() < len {
             Err(Error::UnexpectedEof)
         } else {
-            let value = NetworkEndian::read_u32(self.remaining_buffer());
+            let start = self.pos;
             self.pos += len;
+            let value = LayoutVerified::<&[u8], T>::new(&self[start..self.pos])
+                .unwrap()
+                .into_ref();
             Ok(value)
         }
+    }
+
+    // Consume 20 bytes and interpret them as an id
+    pub fn parse_id(&mut self) -> Result<Id, Error> {
+        let start = self.pos;
+        if self.advance(ID_LEN) {
+            Ok(Id::from_bytes(&self[start..self.pos]))
+        } else {
+            Err(Error::UnexpectedEof)
+        }
+    }
+
+    // Consume a single byte.
+    pub fn parse_byte(&mut self) -> Result<u8, Error> {
+        let start = self.pos;
+        if self.advance(1) {
+            Ok(self[start])
+        } else {
+            Err(Error::UnexpectedEof)
+        }
+    }
+
+    // Consume 4 bytes and convert them from network-endian to native-endian format.
+    pub fn parse_u32(&mut self) -> Result<u32, Error> {
+        Ok(self.parse_struct::<U32<NetworkEndian>>()?.get())
     }
 
     // If the next line starts with the given prefix, returns it.

@@ -56,18 +56,20 @@ pub enum ObjectData {
     Tag(Tag),
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ObjectKind {
+    Commit = 1,
+    Tree = 2,
+    Blob = 3,
+    Tag = 4,
+    OfsDelta = 6,
+    RefDelta = 7,
+}
+
 #[derive(Debug)]
 pub struct Object {
     id: Id,
     data: ObjectData,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ObjectKind {
-    Commit,
-    Tree,
-    Blob,
-    Tag,
 }
 
 /// An error when reading an object from the database.

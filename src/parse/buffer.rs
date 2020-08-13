@@ -1,9 +1,10 @@
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::ops::Range;
 use std::slice::SliceIndex;
 
 use memchr::memchr;
 
+use crate::object::{Id, ID_LEN};
 use crate::parse::{Error, Parser};
 
 /// Similar to std::io::BufReader, but with a variable sized buffer
@@ -24,6 +25,18 @@ impl<R: Read> Buffer<R> {
         }
     }
 
+    pub fn with_capacity(reader: R, capacity: usize) -> Self {
+        Buffer {
+            reader,
+            buffer: Vec::with_capacity(capacity),
+            pos: 0,
+        }
+    }
+
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
     /// Create a parser for the given range of bytes.
     pub fn parser<I>(&self, range: I) -> Parser<&[u8]>
     where
@@ -32,8 +45,14 @@ impl<R: Read> Buffer<R> {
         Parser::new(&self.buffer[range])
     }
 
+    /// Read an exact number of bytes and create a parser.
+    pub fn read_exact_as_parser(&mut self, size: usize) -> Result<Parser<&[u8]>, Error> {
+        let range = self.read_exact(size)?;
+        Ok(self.parser(range))
+    }
+
     /// Read into an owned parser, .
-    pub fn read_into_parser(self, size: usize) -> Result<Parser<Box<[u8]>>, Error> {
+    pub fn read_to_end_into_parser(self, size: usize) -> Result<Parser<Box<[u8]>>, Error> {
         let pos = self.pos;
         let buffer = self.read_to_end(size)?;
         Ok(Parser::with_position(buffer, pos))
@@ -42,7 +61,11 @@ impl<R: Read> Buffer<R> {
     /// Read from the reader, calling `pred` on each byte slice until it returns the offset of the end.
     ///
     /// If `pred` never returns an offset, the buffer position is not advanced and `None` is returned.
-    pub(crate) fn read_until<F>(&mut self, size: usize, mut pred: F) -> Result<Option<Range<usize>>, Error>
+    pub(crate) fn read_until<F>(
+        &mut self,
+        size: usize,
+        mut pred: F,
+    ) -> Result<Option<Range<usize>>, Error>
     where
         F: FnMut(&[u8]) -> Option<usize>,
     {
@@ -84,12 +107,30 @@ impl<R: Read> Buffer<R> {
         })
     }
 
+    /// Read exactly `size` bytes from the reader
+    pub fn read_exact(&mut self, size: usize) -> Result<Range<usize>, Error> {
+        let start = self.pos;
+        let end = self.pos.checked_add(size).ok_or(Error::InvalidLength)?;
+        self.buffer.reserve(self.buffer.len().saturating_sub(end));
+
+        while self.pos != end {
+            let buf = match self.fill_buf_to(end) {
+                Ok(&[]) => return Err(Error::InvalidLength),
+                Ok(buf) => buf,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(Error::Io(err)),
+            };
+
+            self.pos += buf.len();
+        }
+
+        Ok(start..end)
+    }
+
     /// Read from the reader until the end and close it, returning a
-    /// buffer containing its entire contents.
-    ///
-    /// The optional size hint refers to the expected number of bytes
-    /// remaining in the buffer
-    pub(crate) fn read_to_end(mut self, size: usize) -> Result<Box<[u8]>, Error> {
+    /// buffer containing its entire contents. If the total number of
+    /// bytes read is not `size`, returns an error.
+    pub fn read_to_end(mut self, size: usize) -> Result<Box<[u8]>, Error> {
         let end = self.pos.checked_add(size).ok_or(Error::InvalidLength)?;
         self.buffer
             .reserve_exact(self.buffer.len().saturating_sub(end));
@@ -142,6 +183,20 @@ impl<R: Read> Buffer<R> {
         } else {
             Ok(&self.buffer[self.pos..end])
         }
+    }
+
+    /// Read a 20-byte object id from the reader
+    pub fn read_id(&mut self) -> Result<Id, Error> {
+        self.read_exact_as_parser(ID_LEN)?.parse_id()
+    }
+}
+
+impl<R: Seek> Seek for Buffer<R> {
+    /// Seek within the underlying reader. Any buffered data is discarded.
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.buffer.clear();
+        self.pos = 0;
+        self.reader.seek(pos)
     }
 }
 

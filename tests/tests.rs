@@ -13,6 +13,8 @@ use self::common::*;
 #[test]
 fn reading_head_produces_same_result_as_libgit2() {
     run_test(|path| {
+        git_init(path).expect("failed to initialize git repository");
+
         let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
@@ -41,6 +43,8 @@ fn reading_head_produces_same_result_as_libgit2() {
 #[test]
 fn reading_refs_produces_same_result_as_libgit2() {
     run_test(|path| {
+        git_init(path).expect("failed to initialize git repository");
+
         let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
         git_add_file(path, test_file.as_path());
         git_commit(path, "Initial commit.");
@@ -71,6 +75,8 @@ fn reading_refs_produces_same_result_as_libgit2() {
 #[test]
 fn reading_file_produces_same_result_as_libgit2() {
     run_test(|path| {
+        git_init(path).expect("failed to initialize git repository");
+
         let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
@@ -88,7 +94,7 @@ fn reading_file_produces_same_result_as_libgit2() {
 
 #[test]
 fn reading_commit_produces_same_result_as_libgit2() {
-    run_test_in_repo(|path| {
+    run_test_in_new_repo(|path| {
         let target_object_id = String::from_utf8(git_log(path, &["-1", "--format=%H"]).stdout)
             .expect("failed to parse commit hash as utf8")
             .trim()
@@ -136,7 +142,7 @@ fn reading_commit_produces_same_result_as_libgit2() {
 
 #[test]
 fn reading_tree_produces_same_result_as_libgit2() {
-    run_test_in_repo(|path| {
+    run_test_in_new_repo(|path| {
         let cli_objects = git_get_objects(path);
 
         let lg2_repo = git2::Repository::init(path).expect("failed to initialize git repository");

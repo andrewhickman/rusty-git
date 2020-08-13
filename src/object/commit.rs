@@ -140,7 +140,7 @@ mod tests {
 
     use bstr::ByteSlice;
 
-    use crate::object::{Commit, Id, Parser};
+    use super::*;
 
     #[test]
     fn test_parse_commit() {

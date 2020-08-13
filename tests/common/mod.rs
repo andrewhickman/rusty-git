@@ -114,6 +114,18 @@ pub fn git_init(cwd: &Path) -> Result<Output, io::Error> {
     Command::new("git").current_dir(cwd).arg("init").output()
 }
 
+pub fn git_clone(cwd: &Path, src: &str) {
+    assert!(Command::new("git")
+        .current_dir(cwd)
+        .arg("clone")
+        .arg(src)
+        .arg(cwd)
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
 pub fn run_test<T>(test: T)
 where
     T: FnOnce(&Path) + panic::UnwindSafe,
@@ -125,11 +137,13 @@ where
     assert!(result.is_ok());
 }
 
-pub fn run_test_in_repo<T>(test: T)
+pub fn run_test_in_new_repo<T>(test: T)
 where
     T: FnOnce(&Path) + panic::UnwindSafe,
 {
     run_test(|path| {
+        git_init(path).expect("failed to initialize git repository");
+
         let test_file = test_write_file(path, b"Hello world!", "hello_world.txt");
 
         git_add_file(path, test_file.as_path());
@@ -140,10 +154,22 @@ where
     })
 }
 
+pub fn run_test_in_repo<T>(repo: &str, test: T)
+where
+    T: FnOnce(&Path) + panic::UnwindSafe,
+{
+    run_test(|path| {
+        let repo_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(repo);
+
+        git_clone(path, repo_path.as_os_str().to_str().unwrap());
+
+        test(path)
+    })
+}
+
 pub fn setup() -> TempDir {
     let temp = TempDir::new("test-").expect("failed to create test directory");
     println!("path: {}", temp.path().display());
-    git_init(temp.path()).expect("failed to initialize git repository");
     temp
 }
 
