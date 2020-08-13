@@ -5,6 +5,7 @@ use std::ops::Range;
 use memchr::memchr;
 use thiserror::Error;
 
+use crate::object::ParseIdError;
 use crate::reference::{Direct, ReferenceTarget, Symbolic};
 
 const SYMBOLIC_PREFIX: &[u8] = b"ref: ";
@@ -26,12 +27,14 @@ pub enum ParseError {
     EmptySymbolic,
     #[error("reference data was invalid")]
     InvalidReference,
-    #[error("symbolic reference was invalid")]
-    InvalidSymbolicReference,
     #[error("peel object id was invalid")]
     InvalidPeelIdentifier,
     #[error("direct reference object id was invalid")]
-    InvalidDirectIdentifier,
+    InvalidDirectIdentifier(
+        #[from]
+        #[source]
+        ParseIdError,
+    ),
     #[error("io error reading reference")]
     Io(
         #[from]
@@ -82,11 +85,8 @@ impl<R: Read> Parser<R> {
         };
 
         let target = match memchr(b'/', line) {
-            Some(_) => ReferenceTarget::Symbolic(
-                Symbolic::from_bytes(&line.trim_end(), peel)
-                    .map_err(|_| ParseError::InvalidSymbolicReference)?,
-            ),
-            None => ReferenceTarget::Direct(Direct::from_bytes(&line.trim_end())),
+            Some(_) => ReferenceTarget::Symbolic(Symbolic::from_bytes(&line.trim_end(), peel)?),
+            None => ReferenceTarget::Direct(Direct::from_bytes(&line.trim_end())?),
         };
 
         Ok(target)
@@ -95,13 +95,13 @@ impl<R: Read> Parser<R> {
     pub fn read_until_valid_reference_line(&mut self) -> Result<Option<Range<usize>>, ParseError> {
         while !self.finished() {
             let start = self.pos;
-            let end = match self.consume_until(b'\n') {
+            self.pos = match self.consume_until(b'\n') {
                 Some(_) => self.pos,
                 None => self.buffer.len(),
             };
 
-            if self.reference_line_is_valid(&self.buffer[start..end]) {
-                return Ok(Some(start..end));
+            if self.reference_line_is_valid(&self.buffer[start..self.pos]) {
+                return Ok(Some(start..self.pos));
             }
         }
 
@@ -124,46 +124,109 @@ impl<R: Read> Parser<R> {
     }
 }
 
-#[test]
-fn test_parse_symbolic_reference_directory_format() {
+#[cfg(test)]
+mod tests {
+    use super::{ParseError, Parser};
+    use crate::object::ParseIdError;
+    use crate::reference::{Direct, ReferenceTarget, Symbolic};
+    use proptest::prelude::*;
+    use proptest::{arbitrary::any, collection::vec, proptest};
+    use std::io;
+
     fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
         Parser::new(io::Cursor::new(bytes)).parse()
     }
 
-    assert_eq!(
-        parse_ref(b"ref: refs/heads/master").unwrap(),
-        ReferenceTarget::Symbolic(Symbolic::from_bytes(b"refs/heads/master", None).unwrap())
-    );
-}
-
-#[test]
-fn test_parse_symbolic_reference_packed_format() {
-    fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
-        Parser::new(io::Cursor::new(bytes)).parse()
+    macro_rules! assert_display_eq {
+        ($lhs:expr, $rhs:expr) => {
+            assert_eq!(format!("{}", $lhs), format!("{}", $rhs));
+        };
     }
 
-    assert_eq!(
-        parse_ref(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512 refs/remotes/origin/master").unwrap(),
-        ReferenceTarget::Symbolic(
-            Symbolic::from_bytes(
-                b"refs/remotes/origin/master",
-                Some(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512")
+    #[test]
+    fn test_parse_symbolic_reference_directory_format() {
+        assert_eq!(
+            parse_ref(b"ref: refs/heads/master").unwrap(),
+            ReferenceTarget::Symbolic(Symbolic::from_bytes(b"refs/heads/master", None).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_parse_symbolic_reference_packed_format() {
+        assert_eq!(
+            parse_ref(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512 refs/remotes/origin/master")
+                .unwrap(),
+            ReferenceTarget::Symbolic(
+                Symbolic::from_bytes(
+                    b"refs/remotes/origin/master",
+                    Some(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512")
+                )
+                .unwrap()
             )
-            .unwrap()
-        )
-    );
-}
-
-#[test]
-fn test_parse_direct_reference_directory_format() {
-    fn parse_ref(bytes: &[u8]) -> Result<ReferenceTarget, ParseError> {
-        Parser::new(io::Cursor::new(bytes)).parse()
+        );
     }
 
-    assert_eq!(
-        parse_ref(b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c").unwrap(),
-        ReferenceTarget::Direct(Direct::from_bytes(
-            b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c"
-        ))
-    );
+    #[test]
+    fn test_parse_skips_commented_lines() {
+        assert_eq!(
+            parse_ref(b"# pack-refs with: peeled fully-peeled sorted\nda1a5d18c0ab0c03b20fdd91581bc90acd10d512 refs/remotes/origin/master").unwrap(),
+            ReferenceTarget::Symbolic(
+                Symbolic::from_bytes(
+                    b"refs/remotes/origin/master",
+                    Some(b"da1a5d18c0ab0c03b20fdd91581bc90acd10d512")
+                )
+                .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_direct_reference_directory_format() {
+        assert_eq!(
+            parse_ref(b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c").unwrap(),
+            ReferenceTarget::Direct(
+                Direct::from_bytes(b"dbaac6ca0b9ec8ff358224e7808cd5a21395b88c").unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_fails_on_empty_input() {
+        assert_display_eq!(ParseError::Empty, parse_ref(b"").err().unwrap());
+        assert_display_eq!(ParseError::Empty, parse_ref(b" ").err().unwrap());
+        assert_display_eq!(ParseError::Empty, parse_ref(b"\n").err().unwrap());
+        assert_display_eq!(ParseError::Empty, parse_ref(b"# stuff").err().unwrap());
+        assert_display_eq!(
+            ParseError::Empty,
+            parse_ref(b"\n\n# stuff\n\n").err().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_parse_fails_on_bad_identifiers() {
+        assert_display_eq!(
+            ParseError::InvalidDirectIdentifier(ParseIdError::TooShort),
+            parse_ref(b"badid").err().unwrap()
+        );
+        assert_display_eq!(
+            ParseError::InvalidDirectIdentifier(ParseIdError::TooLong),
+            parse_ref(b"01234567890123456789012345678901234567890123456789")
+                .err()
+                .unwrap()
+        );
+        assert_display_eq!(
+            ParseError::InvalidDirectIdentifier(ParseIdError::TooShort),
+            parse_ref(b"badid ref").err().unwrap()
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+          cases: 10000, .. ProptestConfig::default()
+        })]
+        #[test]
+        fn randomized_data_does_not_panic(bytes in vec(any::<u8>(), ..200)) {
+            parse_ref(&bytes).ok();
+        }
+    }
 }

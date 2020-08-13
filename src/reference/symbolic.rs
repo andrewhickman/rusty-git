@@ -20,7 +20,7 @@ impl Symbolic {
         Ok(Symbolic {
             data: reference.to_owned(),
             direct_peel: match peel {
-                Some(bytes) => Some(Direct::from_bytes(bytes)),
+                Some(bytes) => Some(Direct::from_bytes(bytes)?),
                 None => None,
             },
         })
