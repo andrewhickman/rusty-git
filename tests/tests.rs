@@ -119,7 +119,7 @@ fn reading_commit_produces_same_result_as_libgit2() {
 
         let commit_object = repo
             .object_database()
-            .parse_object(&object_id)
+            .parse_object(object_id)
             .expect("failed to parse tree object with rusty git");
 
         let commit = match commit_object.data() {
@@ -163,7 +163,7 @@ fn reading_tree_produces_same_result_as_libgit2() {
 
         let tree_object = repo
             .object_database()
-            .parse_object(&target_tree_id)
+            .parse_object(target_tree_id)
             .expect("failed to parse tree object with rusty git");
 
         let tree = match tree_object.data() {
@@ -189,7 +189,7 @@ fn test_rusty_git_read_blob(cwd: &Path, id: &str) -> Vec<u8> {
 
     let object = repo
         .object_database()
-        .parse_object(&object_id)
+        .parse_object(object_id)
         .expect("failed to get object with rusty_git");
 
     let blob = match object.data() {

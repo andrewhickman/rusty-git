@@ -3,8 +3,9 @@ use std::ops::Range;
 use std::str;
 
 use bstr::{BStr, ByteSlice};
+use thiserror::Error;
 
-use crate::object::{Id, ParseError, Parser, ID_LEN};
+use crate::object::{Id, Parser, ID_LEN};
 
 pub struct Tree {
     data: Box<[u8]>,
@@ -16,6 +17,10 @@ pub struct TreeEntry<'a> {
     entry: TreeEntryRaw,
 }
 
+#[derive(Debug, Error)]
+#[error("{0}")]
+pub(in crate::object) struct ParseTreeError(&'static str);
+
 #[derive(Clone)]
 struct TreeEntryRaw {
     mode: u16,
@@ -24,32 +29,30 @@ struct TreeEntryRaw {
 }
 
 impl Tree {
-    pub fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseTreeError> {
         let mut entries = Vec::with_capacity(parser.remaining() / 140);
 
         while !parser.finished() {
             let mode = parser
                 .consume_until(b' ')
-                .ok_or(ParseError::InvalidTree("expected space"))?;
-            let mode = str::from_utf8(parser.bytes(mode))
-                .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
-            let mode = u16::from_str_radix(mode, 8)
-                .map_err(|_| ParseError::InvalidTree("invalid mode"))?;
+                .ok_or(ParseTreeError("invalid mode"))?;
+            let mode = str::from_utf8(&parser[mode]).map_err(|_| ParseTreeError("invalid mode"))?;
+            let mode = u16::from_str_radix(mode, 8).map_err(|_| ParseTreeError("invalid mode"))?;
 
             let filename = parser
                 .consume_until(0)
-                .ok_or(ParseError::InvalidTree("invalid filename"))?;
+                .ok_or(ParseTreeError("invalid filename"))?;
 
             let id = parser.pos();
             if !parser.advance(ID_LEN) {
-                return Err(ParseError::InvalidTree("invalid id"));
+                return Err(ParseTreeError("invalid id"));
             }
 
             entries.push(TreeEntryRaw { mode, filename, id })
         }
 
         Ok(Tree {
-            data: parser.finish(),
+            data: parser.into_inner(),
             entries: entries.into_boxed_slice(),
         })
     }
@@ -98,12 +101,13 @@ mod tests {
 
     #[test]
     fn test_parse_tree() {
-        let parser = Parser::from_bytes(
+        let parser = Parser::new(
             b"\
 40000 .github\0\x49\x19\x89\xb9\x30\xc1\xe5\xd0\x83\xa4\xd2\xa1\xf7\xfa\x42\xaa\xa8\x6c\x13\x75\
 100644 .gitignore\0\x69\x36\x99\x04\x2b\x1a\x8c\xcf\x69\x76\x36\xd3\xcd\x34\xb2\x00\xf3\xa8\x27\x8b\
 "
-            .to_vec(),
+            .to_vec()
+            .into_boxed_slice(),
         );
 
         let tree = Tree::parse(parser).unwrap();

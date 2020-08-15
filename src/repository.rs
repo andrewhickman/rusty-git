@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::object::{self, ObjectDatabase};
+use crate::object::ObjectDatabase;
 use crate::reference::ReferenceDatabase;
 
 const DOTGIT_FOLDER: &str = ".git";
@@ -21,12 +21,6 @@ pub struct Repository {
 pub enum OpenError {
     #[error("repository not found at `{0}`")]
     NotFound(PathBuf),
-    #[error("error in object database")]
-    Object(
-        #[source]
-        #[from]
-        object::Error,
-    ),
     #[error("io error opening repository")]
     Io(
         #[source]

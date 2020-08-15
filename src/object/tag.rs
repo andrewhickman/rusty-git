@@ -1,11 +1,12 @@
 use std::fmt;
-use std::io::Read;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
+use thiserror::Error;
 
-use crate::object::signature::{Signature, SignatureRaw};
-use crate::object::{Id, ObjectKind, ParseError, Parser, ID_HEX_LEN};
+use crate::object::parse::ParseObjectKindError;
+use crate::object::signature::{ParseSignatureError, Signature, SignatureRaw};
+use crate::object::{Id, ObjectKind, Parser, ID_HEX_LEN};
 
 pub struct Tag {
     data: Box<[u8]>,
@@ -16,20 +17,33 @@ pub struct Tag {
     message: Option<usize>,
 }
 
+#[derive(Debug, Error)]
+pub(in crate::object) enum ParseTagError {
+    #[error("{0}")]
+    Other(&'static str),
+    #[error(transparent)]
+    ParseObjectKind(#[from] ParseObjectKindError),
+    #[error(transparent)]
+    Signature(#[from] ParseSignatureError),
+}
+
 impl Tag {
-    pub fn parse<R: Read>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseTagError> {
         let object = parser
-            .parse_hex_id_line(b"object ")?
-            .ok_or(ParseError::InvalidTag("object field not found"))?;
+            .parse_hex_id_line(b"object ")
+            .map_err(|_| ParseTagError::Other("object field not found"))?
+            .ok_or(ParseTagError::Other("object field not found"))?;
 
         let kind = parser
-            .parse_prefix_line(b"type ")?
-            .ok_or(ParseError::InvalidTag("type field not found"))?;
-        let kind = ObjectKind::from_bytes(&parser.bytes(kind))?;
+            .parse_prefix_line(b"type ")
+            .map_err(|_| ParseTagError::Other("type field not found"))?
+            .ok_or(ParseTagError::Other("type field not found"))?;
+        let kind = ObjectKind::from_bytes(&parser[kind])?;
 
         let tag = parser
-            .parse_prefix_line(b"tag ")?
-            .ok_or(ParseError::InvalidTag("tag field not found"))?;
+            .parse_prefix_line(b"tag ")
+            .map_err(|_| ParseTagError::Other("tag field not found"))?
+            .ok_or(ParseTagError::Other("tag field not found"))?;
 
         let tagger = parser.parse_signature(b"tagger ")?;
 
@@ -40,7 +54,7 @@ impl Tag {
         };
 
         Ok(Tag {
-            data: parser.finish(),
+            data: parser.into_inner(),
             object,
             kind,
             tag,

@@ -16,7 +16,7 @@ impl Direct {
 
     pub fn object(&self, repo: &Repository) -> Result<Object, Error> {
         repo.object_database()
-            .parse_object(&self.id)
+            .parse_object(self.id)
             .map_err(Error::DereferencingFailed)
     }
 }

@@ -21,7 +21,7 @@ fn reading_tag_produces_same_result_as_libgit2() {
         let rg_id = object::Id::from_str(&lg_id.to_string()).unwrap();
 
         let lg_tag = lg_repo.find_tag(lg_id).unwrap();
-        let rg_obj = rg_repo.object_database().parse_object(&rg_id).unwrap();
+        let rg_obj = rg_repo.object_database().parse_object(rg_id).unwrap();
         let rg_tag = match rg_obj.data() {
             ObjectData::Tag(tag) => tag,
             _ => panic!("expected tag"),

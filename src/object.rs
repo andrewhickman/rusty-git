@@ -1,7 +1,7 @@
 mod blob;
 mod commit;
 mod database;
-mod parser;
+mod parse;
 mod signature;
 mod tag;
 mod tree;
@@ -16,7 +16,7 @@ pub use self::tree::{Tree, TreeEntry};
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::fmt;
-use std::io::{self, Cursor};
+use std::io;
 use std::str::FromStr;
 
 use hex::FromHex;
@@ -25,7 +25,12 @@ use sha1::Sha1;
 use thiserror::Error;
 use zerocopy::FromBytes;
 
-use self::parser::{ObjectKind, ParseError, Parser};
+use self::blob::ParseBlobError;
+use self::commit::ParseCommitError;
+use self::tag::ParseTagError;
+use self::tree::ParseTreeError;
+use crate::parse::{Buffer, Parser};
+use self::parse::ParseObjectError;
 
 pub const ID_LEN: usize = 20;
 pub const ID_HEX_LEN: usize = ID_LEN * 2;
@@ -57,24 +62,26 @@ pub struct Object {
     data: ObjectData,
 }
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("object `{0}` not found")]
-    ObjectNotFound(ShortId),
-    #[error("object id `{0}` is ambiguous")]
-    Ambiguous(ShortId),
-    #[error("the object database is invalid")]
-    InvalidObject(
-        #[source]
-        #[from]
-        ParseError,
-    ),
-    #[error("io error in object database")]
-    Io(
-        #[source]
-        #[from]
-        io::Error,
-    ),
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ObjectKind {
+    Commit,
+    Tree,
+    Blob,
+    Tag,
+}
+
+/// An error when reading an object from the database.
+#[derive(Debug)]
+pub struct ReadObjectError {
+    id: ShortId,
+    kind: ReadObjectErrorKind,
+}
+
+#[derive(Debug)]
+enum ReadObjectErrorKind {
+    Database(database::ReadError),
+    Parse(ParseObjectError),
+    Io(io::Error),
 }
 
 #[derive(Debug, Error)]
@@ -88,26 +95,15 @@ pub enum ParseIdError {
 }
 
 impl ObjectData {
-    pub fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseError> {
-        Parser::new(reader).parse()
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ParseError> {
-        Parser::new(Cursor::new(bytes)).parse()
+    fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseObjectError> {
+        Buffer::new(reader).read_object()
     }
 }
 
 impl Object {
-    pub fn from_reader<R: io::Read>(id: Id, reader: R) -> Result<Self, ParseError> {
+    fn from_reader<R: io::Read>(id: Id, reader: R) -> Result<Self, ParseObjectError> {
         Ok(Object {
             data: ObjectData::from_reader(reader)?,
-            id,
-        })
-    }
-
-    pub fn from_bytes(id: Id, bytes: &[u8]) -> Result<Self, ParseError> {
-        Ok(Object {
-            data: ObjectData::from_bytes(bytes)?,
             id,
         })
     }
@@ -236,17 +232,75 @@ impl From<Id> for ShortId {
     }
 }
 
-impl Error {
+impl ReadObjectError {
+    fn new(id: impl Into<ShortId>, kind: impl Into<ReadObjectErrorKind>) -> Self {
+        ReadObjectError {
+            id: id.into(),
+            kind: kind.into(),
+        }
+    }
+}
+
+impl fmt::Display for ReadObjectError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.kind {
+            ReadObjectErrorKind::Database(database::ReadError::NotFound) => {
+                write!(f, "object id `{}` was not found", self.id)
+            }
+            ReadObjectErrorKind::Database(database::ReadError::Ambiguous) => {
+                write!(f, "object id `{}` is ambiguous", self.id)
+            }
+            ReadObjectErrorKind::Database(_) => {
+                write!(f, "failed to read object `{}` from the database", self.id)
+            }
+            ReadObjectErrorKind::Parse(_) => write!(f, "object `{}` is invalid", self.id),
+            ReadObjectErrorKind::Io(_) => write!(f, "io error reading object `{}`", self.id),
+        }
+    }
+}
+
+impl std::error::Error for ReadObjectError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.kind {
+            ReadObjectErrorKind::Database(database::ReadError::NotFound) => None,
+            ReadObjectErrorKind::Database(database::ReadError::Ambiguous) => None,
+            ReadObjectErrorKind::Database(ref err) => Some(err),
+            ReadObjectErrorKind::Parse(ref err) => Some(err),
+            ReadObjectErrorKind::Io(ref err) => Some(err),
+        }
+    }
+}
+
+impl From<ParseObjectError> for ReadObjectErrorKind {
+    fn from(err: ParseObjectError) -> Self {
+        match err {
+            ParseObjectError::Io(err) => ReadObjectErrorKind::Io(err),
+            err => ReadObjectErrorKind::Parse(err),
+        }
+    }
+}
+
+impl From<database::ReadError> for ReadObjectErrorKind {
+    fn from(err: database::ReadError) -> Self {
+        ReadObjectErrorKind::Database(err)
+    }
+}
+
+impl ReadObjectError {
+    pub fn id(&self) -> ShortId {
+        self.id
+    }
+
     pub fn is_ambiguous(&self) -> bool {
-        match self {
-            Error::Ambiguous(_) => true,
+        match self.kind {
+            ReadObjectErrorKind::Database(database::ReadError::Ambiguous) => true,
             _ => false,
         }
     }
 
     pub fn is_not_found(&self) -> bool {
-        match self {
-            Error::ObjectNotFound(_) => true,
+        match self.kind {
+            ReadObjectErrorKind::Database(database::ReadError::NotFound) => true,
             _ => false,
         }
     }

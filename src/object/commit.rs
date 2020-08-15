@@ -3,8 +3,10 @@ use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
 
-use crate::object::signature::{Signature, SignatureRaw};
-use crate::object::{Id, ParseError, Parser, ID_HEX_LEN};
+use crate::object::signature::{ParseSignatureError, Signature, SignatureRaw};
+use crate::object::{Id, ID_HEX_LEN};
+use crate::parse::Parser;
+use thiserror::Error;
 
 pub struct Commit {
     data: Box<[u8]>,
@@ -16,43 +18,57 @@ pub struct Commit {
     message: usize,
 }
 
+#[derive(Debug, Error)]
+pub(in crate::object) enum ParseCommitError {
+    #[error(transparent)]
+    Signature(#[from] ParseSignatureError),
+    #[error("{0}")]
+    Other(&'static str),
+}
+
 impl Commit {
-    pub fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseCommitError> {
         let tree = parser
-            .parse_hex_id_line(b"tree ")?
-            .ok_or(ParseError::InvalidCommit)?;
+            .parse_hex_id_line(b"tree ")
+            .map_err(|_| ParseCommitError::Other("invalid tree object id"))?
+            .ok_or(ParseCommitError::Other("missing tree object id"))?;
 
         let mut parents = Vec::with_capacity(1);
-        while let Some(parent) = parser.parse_hex_id_line(b"parent ")? {
+        while let Some(parent) = parser.parse_hex_id_line(b"parent ")
+            .map_err(|_| ParseCommitError::Other("invalid parent object id"))?
+         {
             parents.push(parent);
         }
 
         // TODO: validate author
         let author = parser
             .parse_signature(b"author ")?
-            .ok_or(ParseError::InvalidCommit)?;
+            .ok_or(ParseCommitError::Other("missing author"))?;
 
         // Some tools create multiple author fields, ignore the extra ones
         while parser.parse_signature(b"author ")?.is_some() {}
 
         let committer = parser
             .parse_signature(b"committer ")?
-            .ok_or(ParseError::InvalidCommit)?;
+            .ok_or(ParseCommitError::Other("missing committer"))?;
 
         let mut encoding = None;
         // Consume additional commit headers
         while !parser.consume_bytes(b"\n") {
-            if let Some(range) = parser.parse_prefix_line(b"encoding ")? {
+            if let Some(range) = parser
+                .parse_prefix_line(b"encoding ")
+                .map_err(|_| ParseCommitError::Other("invalid encoding"))?
+            {
                 encoding = Some(range);
             } else if parser.consume_until(b'\n').is_none() {
-                return Err(ParseError::InvalidCommit);
+                return Err(ParseCommitError::Other("missing message"));
             }
         }
 
         let message = parser.pos();
 
         Ok(Commit {
-            data: parser.finish(),
+            data: parser.into_inner(),
             tree,
             parents,
             author,
@@ -125,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_parse_commit() {
-        let parser = Parser::from_bytes(
+        let parser = Parser::new(
             b"\
 tree a552334b3ba0630d8f82ac9f27ab55625085d9bd
 parent befc2587746bb7aeb8588788caeaeadd3eb06e4b
@@ -135,7 +151,8 @@ header value
 encoding UTF-8
 
 message"
-                .to_vec(),
+                .to_vec()
+                .into_boxed_slice(),
         );
 
         let commit = Commit::parse(parser).unwrap();

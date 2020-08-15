@@ -6,15 +6,40 @@ use filetime::{set_file_mtime, FileTime};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use thiserror::Error;
 
 use crate::object::database::Reader;
-use crate::object::{Error, Id, ShortId};
+use crate::object::{Id };
 
 const OBJECTS_FOLDER: &str = "objects";
 
 #[derive(Debug)]
 pub struct LooseObjectDatabase {
     path: PathBuf,
+}
+
+#[derive(Debug, Error)]
+pub(in crate::object) enum ReadLooseError {
+    #[error("the object id was not found in the loose database")]
+    NotFound,
+    #[error("the object id is ambiguous in the loose database")]
+    Ambiguous,
+    #[error("io error reading from the loose object database")]
+    Io(
+        #[source]
+        #[from]
+        io::Error,
+    ),
+}
+
+#[derive(Debug, Error)]
+pub(in crate::object) enum WriteLooseError {
+    #[error("io error writing to loose object database")]
+    Io(
+        #[source]
+        #[from]
+        io::Error,
+    ),
 }
 
 impl LooseObjectDatabase {
@@ -24,7 +49,7 @@ impl LooseObjectDatabase {
         }
     }
 
-    pub fn read_object(&self, id: &Id) -> Result<Reader, Error> {
+    pub(in crate::object::database) fn read_object(&self, id: &Id) -> Result<Reader, ReadLooseError> {
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);
         let mut path = self.path.join(dir);
@@ -32,14 +57,12 @@ impl LooseObjectDatabase {
 
         match fs_err::File::open(path) {
             Ok(file) => Ok(ZlibDecoder::new(file)),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => {
-                Err(Error::ObjectNotFound(ShortId::from(*id)))
-            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Err(ReadLooseError::NotFound),
             Err(err) => Err(err.into()),
         }
     }
 
-    pub fn write_object(&self, bytes: &[u8]) -> Result<Id, Error> {
+    pub(in crate::object::database) fn write_object(&self, bytes: &[u8]) -> Result<Id, WriteLooseError> {
         let id = Id::from_hash(bytes);
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);

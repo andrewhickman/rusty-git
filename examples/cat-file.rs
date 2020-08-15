@@ -15,7 +15,7 @@ pub fn main() -> Result<()> {
     let args = Args::from_args();
     let repo = Repository::open(".")?;
 
-    let object = repo.object_database().parse_object(&args.id)?;
+    let object = repo.object_database().parse_object(args.id)?;
 
     println!("{:#?}", object);
     Ok(())

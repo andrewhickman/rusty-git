@@ -3,17 +3,39 @@ use std::fmt;
 use std::mem::size_of;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::io;
 
 use byteorder::NetworkEndian;
 use zerocopy::byteorder::{U32, U64};
 use zerocopy::{FromBytes, LayoutVerified};
+use thiserror::Error;
 
-use crate::object::{Error, Id, ParseError, Parser, ShortId, ID_LEN};
+use crate::object::{Id, Parser, ShortId, ID_LEN};
 
 pub(in crate::object::database::packed) struct IndexFile {
     data: Box<[u8]>,
     version: Version,
     count: usize,
+}
+
+#[derive(Debug, Error)]
+pub(in crate::object::database::packed) enum ReadIndexFileError {
+    #[error("cannot parse an pack file index with version `{0}`")]
+    UnknownVersion(u32),
+    #[error("{0}")]
+    Other(&'static str),
+    #[error("io error reading pack file index")]
+    Io(#[from]#[source] io::Error),
+}
+
+#[derive(Debug, Error)]
+pub(in crate::object::database::packed) enum FindIndexOffsetError {
+    #[error("the object id was not found in the pack file index")]
+    NotFound,
+    #[error("the object id is ambiguous in the pack file index")]
+    Ambiguous,
+    #[error(transparent)]
+    ReadIndexFile(ReadIndexFileError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -44,17 +66,19 @@ impl IndexFile {
     const ENTRY_LEN_V2: usize = size_of::<EntryV2>();
     const TRAILER_LEN: usize = ID_LEN + ID_LEN;
 
-    pub fn open(path: PathBuf) -> Result<Self, ParseError> {
-        IndexFile::parse(Parser::from_file(path)?)
+    pub fn open(path: PathBuf) -> Result<Self, ReadIndexFileError> {
+        let bytes = fs_err::read(path)?.into_boxed_slice();
+        IndexFile::parse(Parser::new(bytes))
     }
 
-    fn parse<R>(mut parser: Parser<R>) -> Result<Self, ParseError> {
+    fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ReadIndexFileError> {
         let version = if parser.consume_u32(IndexFile::SIGNATURE) {
-            let version = parser.parse_u32()?;
+            let version = parser.parse_u32()
+                .map_err(|_| ReadIndexFileError::Other("file is too short"))?;
 
             match version {
                 2 => Version::V2,
-                _ => return Err(ParseError::UnknownPackVersion),
+                n => return Err(ReadIndexFileError::UnknownVersion(n)),
             }
         } else {
             Version::V1
@@ -62,26 +86,25 @@ impl IndexFile {
 
         let mut count = 0;
         for _ in 0..IndexFile::LEVEL_ONE_COUNT {
-            let n = parser.parse_u32()?;
+            let n = parser.parse_u32().map_err(|_| ReadIndexFileError::Other("file is too short"))?;
             if n < count {
-                return Err(ParseError::NonMonotonicPackIndex);
+                return Err(ReadIndexFileError::Other("the fan out is not monotonic"));
             }
             count = n;
         }
-        let count =
-            usize::try_from(count).or(Err(ParseError::InvalidPackIndex("invalid index count")))?;
+        let count = usize::try_from(count).or(Err(ReadIndexFileError::Other("invalid index count")))?;
 
         let mut min_size = count
             .checked_mul(version.entry_len())
-            .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
+            .ok_or(ReadIndexFileError::Other("invalid index count"))?
             .checked_add(IndexFile::TRAILER_LEN)
-            .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
+            .ok_or(ReadIndexFileError::Other("invalid index count"))?;
         if version == Version::V2 {
             min_size = count
                 .checked_mul(8)
-                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?
+                .ok_or(ReadIndexFileError::Other("invalid index count"))?
                 .checked_add(min_size)
-                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?;
+                .ok_or(ReadIndexFileError::Other("invalid index count"))?;
         }
 
         let max_size = match version {
@@ -91,25 +114,25 @@ impl IndexFile {
                     count
                         .saturating_sub(1)
                         .checked_mul(8)
-                        .ok_or(ParseError::InvalidPackIndex("invalid index count"))?,
+                        .ok_or(ReadIndexFileError::Other("invalid index count"))?,
                 )
-                .ok_or(ParseError::InvalidPackIndex("invalid index count"))?,
+                .ok_or(ReadIndexFileError::Other("invalid index count"))?,
         };
 
         if parser.remaining() < min_size || parser.remaining() > max_size {
-            return Err(ParseError::InvalidPackIndex(
+            return Err(ReadIndexFileError::Other(
                 "index length is an invalid length",
             ));
         }
 
         Ok(IndexFile {
-            data: parser.finish(),
+            data: parser.into_inner(),
             count,
             version,
         })
     }
 
-    pub fn find_offset(&self, short_id: &ShortId) -> Result<(usize, Id), Error> {
+    pub fn find_offset(&self, short_id: &ShortId) -> Result<(usize, Id), FindIndexOffsetError> {
         let level_one = self.level_one();
         let first_byte = short_id.first_byte() as usize;
         let index_end = level_one[first_byte].get() as usize;
@@ -121,7 +144,7 @@ impl IndexFile {
         fn binary_search<'a, T: Entry>(
             entries: &'a [T],
             short_id: &ShortId,
-        ) -> Result<(usize, &'a T), Error> {
+        ) -> Result<(usize, &'a T), FindIndexOffsetError> {
             match entries.binary_search_by(|entry| entry.id().cmp_short(short_id)) {
                 Ok(index) => Ok((index, &entries[index])),
                 Err(index) => {
@@ -130,9 +153,9 @@ impl IndexFile {
                         .take_while(|entry| entry.id().starts_with(short_id));
                     let entry = matches
                         .next()
-                        .ok_or_else(|| Error::ObjectNotFound(*short_id))?;
+                        .ok_or_else(|| FindIndexOffsetError::NotFound)?;
                     if matches.next().is_some() {
-                        return Err(Error::Ambiguous(*short_id));
+                        return Err(FindIndexOffsetError::Ambiguous);
                     }
                     Ok((index, entry))
                 }
@@ -153,18 +176,18 @@ impl IndexFile {
                     u64::from(small_offsets[index_start + index].get())
                 } else {
                     let large_offset_index = usize::try_from(small_offset & 0x7fffffff)
-                        .map_err(|_| ParseError::InvalidPackIndex("invalid offset"))?;
+                        .map_err(|_| FindIndexOffsetError::read_index_file("invalid offset"))?;
                     large_offsets
                         .get(large_offset_index)
-                        .ok_or(ParseError::InvalidPackIndex("invalid offset"))?
+                        .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))?
                         .get()
                 };
                 (offset, entry.id)
             }
         };
 
-        let offset =
-            usize::try_from(offset).map_err(|_| ParseError::InvalidPackIndex("invalid offset"))?;
+        let offset = usize::try_from(offset)
+                        .map_err(|_| FindIndexOffsetError::read_index_file("invalid offset"))?;
 
         Ok((offset, id))
     }
@@ -179,24 +202,22 @@ impl IndexFile {
             .into_slice()
     }
 
-    fn entries_v1(&self, range: Range<usize>) -> Result<&[EntryV1], Error> {
+    fn entries_v1(&self, range: Range<usize>) -> Result<&[EntryV1], FindIndexOffsetError> {
         Ok(LayoutVerified::<_, [EntryV1]>::new_slice(self.entries())
             .unwrap()
             .into_slice()
             .get(range)
-            .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
-                "invalid pack index offset",
-            )))?)
+                        .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))
+            ?)
     }
 
-    fn entries_v2(&self, range: Range<usize>) -> Result<&[EntryV2], Error> {
+    fn entries_v2(&self, range: Range<usize>) -> Result<&[EntryV2], FindIndexOffsetError> {
         Ok(LayoutVerified::<_, [EntryV2]>::new_slice(self.entries())
             .unwrap()
             .into_slice()
             .get(range)
-            .ok_or(Error::InvalidObject(ParseError::InvalidPackIndex(
-                "invalid pack index offset",
-            )))?)
+                        .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))
+            ?)
     }
 
     fn entries(&self) -> &[u8] {
@@ -277,6 +298,12 @@ impl fmt::Debug for IndexFile {
     }
 }
 
+impl FindIndexOffsetError {
+    fn read_index_file(message: &'static str) -> Self {
+        FindIndexOffsetError::ReadIndexFile(ReadIndexFileError::Other(message))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::{align_of, size_of};
@@ -298,6 +325,22 @@ mod tests {
 
     fn short(s: &str) -> ShortId {
         ShortId::from_str(s).unwrap()
+    }
+
+    impl FindIndexOffsetError {
+        fn is_ambiguous(&self) -> bool {
+            match self {
+                FindIndexOffsetError::Ambiguous => true,
+                _ => false,
+            }
+        }
+
+        fn is_not_found(&self) -> bool {
+            match self {
+                FindIndexOffsetError::NotFound => true,
+                _ => false,
+            }
+        }
     }
 
     #[test]
@@ -324,7 +367,7 @@ mod tests {
         bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
         bytes.extend(Id::default().as_bytes());
 
-        let parser = Parser::from_bytes(bytes);
+        let parser = Parser::new(bytes.into_boxed_slice());
 
         let index = IndexFile::parse(parser).unwrap();
 
@@ -395,7 +438,7 @@ mod tests {
         bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
         bytes.extend(Id::default().as_bytes());
 
-        let parser = Parser::from_bytes(bytes);
+        let parser = Parser::new(bytes.into_boxed_slice());
 
         let index = IndexFile::parse(parser).unwrap();
 

@@ -40,7 +40,7 @@ pub enum Error {
     DereferencingFailed(
         #[source]
         #[from]
-        object::Error,
+        object::ReadObjectError,
     ),
     #[error("the reference is invalid")]
     InvalidReference(

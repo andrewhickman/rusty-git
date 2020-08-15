@@ -1,21 +1,23 @@
 use std::fmt;
-use std::io::Read;
 
 use bstr::{BStr, ByteSlice};
+use thiserror::Error;
 
-use crate::object::{ParseError, Parser};
+use crate::parse::Parser;
 
 pub struct Blob {
     data: Box<[u8]>,
     pos: usize,
 }
 
+#[derive(Debug, Error)]
+pub enum ParseBlobError {}
+
 impl Blob {
-    pub fn parse<R: Read>(parser: Parser<R>) -> Result<Self, ParseError> {
-        let pos = parser.pos();
+    pub(in crate::object) fn parse(parser: Parser<Box<[u8]>>) -> Result<Self, ParseBlobError> {
         Ok(Blob {
-            data: parser.finish(),
-            pos,
+            pos: parser.pos(),
+            data: parser.into_inner(),
         })
     }
 

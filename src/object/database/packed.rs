@@ -1,16 +1,19 @@
 mod index;
 mod pack;
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
+use small_ord_set::SmallOrdSet;
 
-use self::index::IndexFile;
-use self::pack::PackFile;
+use self::index::{IndexFile, ReadIndexFileError, FindIndexOffsetError};
+use self::pack::{PackFile, ReadPackFileError};
 use crate::object::database::Reader;
-use crate::object::{Error, ParseError, ShortId};
+use crate::object::{ShortId, Id};
+use thiserror::Error;
 
 const PACKS_FOLDER: &str = "objects/pack";
 const MAX_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
@@ -23,8 +26,45 @@ pub struct PackedObjectDatabase {
     last_refresh: Mutex<Option<Instant>>,
 }
 
+#[derive(Debug, Error)]
+pub(in crate::object) enum ReadPackedError {
+    #[error("the object id was not found in the packed database")]
+    NotFound,
+    #[error("the object id is ambiguous in the packed database")]
+    Ambiguous,
+    #[error(transparent)]
+    ReadEntry(#[from] ReadEntryError),
+    #[error("io error reading from the packed object database")]
+    Io(
+        #[source]
+        #[from]
+        io::Error,
+    ),
+}
+
+#[derive(Debug, Error)]
+#[error("failed to read packed database entry {name}")]
+pub(in crate::object) struct ReadEntryError {
+    name: String,
+    #[source]
+    kind: ReadEntryErrorKind,
+}
+
+#[derive(Debug, Error)]
+enum ReadEntryErrorKind {
+    #[error("failed to read the index file")]
+    ReadIndexFile(ReadIndexFileError),
+    #[error("failed to read the pack file")]
+    ReadPackFile(ReadPackFileError),
+    #[error("the index file and pack file have a different number of entries")]
+    CountMismatch,
+    #[error("the index file and pack file have a different id")]
+    IdMismatch,
+}
+
 #[derive(Debug)]
 struct Entry {
+    name: String,
     index: IndexFile,
     pack: PackFile,
 }
@@ -38,26 +78,38 @@ impl PackedObjectDatabase {
         }
     }
 
-    pub fn read_object(&self, short_id: &ShortId) -> Result<Reader, Error> {
+    pub(in crate::object::database) fn read_object(&self, short_id: &ShortId) -> Result<Reader, ReadPackedError> {
         match self.try_read_object(short_id) {
-            Err(Error::ObjectNotFound(_)) if self.refresh()? => self.try_read_object(short_id),
+            Err(ReadPackedError::NotFound) if self.refresh()? => self.try_read_object(short_id),
             result => result,
         }
     }
 
-    fn try_read_object(&self, short_id: &ShortId) -> Result<Reader, Error> {
+    fn try_read_object(&self, short_id: &ShortId) -> Result<Reader, ReadPackedError> {
+        let mut result = None;
+        let mut found_ids = SmallOrdSet::<[Id; 4]>::new();
         for entry in self.packs.iter() {
             match entry.value().index.find_offset(short_id) {
-                Ok((offset, _)) => return entry.value().pack.read_object(offset),
-                Err(Error::ObjectNotFound(_)) => continue,
-                Err(err) => return Err(err),
+                Err(FindIndexOffsetError::Ambiguous) => return Err(ReadPackedError::Ambiguous),
+                Ok((_, id)) if !found_ids.insert(id) => return Err(ReadPackedError::Ambiguous),
+                Ok((offset, _)) => {
+                    result = Some((entry.value().clone(), offset))
+                },
+                Err(FindIndexOffsetError::NotFound) => continue,
+                Err(FindIndexOffsetError::ReadIndexFile(err)) => return Err(ReadPackedError::ReadEntry(ReadEntryError {
+                    name: entry.name.clone(),
+                    kind: ReadEntryErrorKind::ReadIndexFile(err),
+                })),
             }
         }
 
-        return Err(Error::ObjectNotFound(*short_id));
+        match result {
+            Some((entry, offset)) => entry.pack.read_object(offset),
+            None => Err(ReadPackedError::NotFound),
+        }
     }
 
-    fn refresh(&self) -> Result<bool, Error> {
+    fn refresh(&self) -> Result<bool, ReadPackedError> {
         // Keep the mutex locked while refreshing so we don't have multiple thread refreshing simultaneously.
         // This isn't necessary for correctness, but is just an optimization.
         let mut last_refresh_guard = self.last_refresh.lock().unwrap();
@@ -83,20 +135,42 @@ impl PackedObjectDatabase {
 }
 
 impl Entry {
-    fn open(path: PathBuf) -> Result<Self, ParseError> {
-        let pack = PackFile::open(path.with_extension("pack"))?;
-        let index = IndexFile::open(path)?;
+    fn open(path: PathBuf) -> Result<Self, ReadEntryError> {
+        // The file has an extension so it must have a file name
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+
+        let index = match IndexFile::open(path.clone()) {
+            Ok(index) => index,
+            Err(err) => {
+                return Err(ReadEntryError {
+                    name,
+                    kind: ReadEntryErrorKind::ReadIndexFile(err),
+                })
+            }
+        };
+
+        let pack = match PackFile::open(path.with_extension("pack")) {
+            Ok(pack) => pack,
+            Err(err) => return Err(ReadEntryError {
+                    name,
+                kind: ReadEntryErrorKind::ReadPackFile(err),
+            }),
+        };
 
         if index.count() != pack.count() {
-            return Err(ParseError::InvalidPackIndex(
-                "index count does not match pack file count",
-            ));
+            return Err(ReadEntryError {
+                    name,
+                kind: ReadEntryErrorKind::CountMismatch,
+            });
         }
 
         if index.id() != pack.id() {
-            return Err(ParseError::InvalidPack);
+            return Err(ReadEntryError {
+                    name,
+                kind: ReadEntryErrorKind::IdMismatch,
+            });
         }
 
-        Ok(Entry { pack, index })
+        Ok(Entry { pack, index, name })
     }
 }

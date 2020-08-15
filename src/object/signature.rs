@@ -3,8 +3,9 @@ use std::ops::Range;
 use bstr::{BStr, ByteSlice};
 use once_cell::sync::Lazy;
 use regex::bytes::{Captures, Regex};
+use thiserror::Error;
 
-use crate::object::{ParseError, Parser};
+use crate::parse::Parser;
 
 #[derive(Clone)]
 pub struct SignatureRaw {
@@ -14,6 +15,10 @@ pub struct SignatureRaw {
 pub struct Signature<'a> {
     captures: Captures<'a>,
 }
+
+#[derive(Debug, Error)]
+#[error("a signature line is invalid")]
+pub struct ParseSignatureError;
 
 impl<'a> Signature<'a> {
     fn regex() -> &'static Regex {
@@ -59,13 +64,19 @@ impl<'a> Signature<'a> {
     }
 }
 
-impl<R> Parser<R> {
-    pub fn parse_signature(&mut self, prefix: &[u8]) -> Result<Option<SignatureRaw>, ParseError> {
-        if let Some(range) = self.parse_prefix_line(prefix)? {
-            if Signature::is_valid(self.bytes(range.clone())) {
+impl<B: AsRef<[u8]>> Parser<B> {
+    pub fn parse_signature(
+        &mut self,
+        prefix: &[u8],
+    ) -> Result<Option<SignatureRaw>, ParseSignatureError> {
+        if let Some(range) = self
+            .parse_prefix_line(prefix)
+            .map_err(|_| ParseSignatureError)?
+        {
+            if Signature::is_valid(&self[range.clone()]) {
                 Ok(Some(SignatureRaw { range }))
             } else {
-                Err(ParseError::InvalidSignature)
+                Err(ParseSignatureError)
             }
         } else {
             Ok(None)
@@ -75,17 +86,17 @@ impl<R> Parser<R> {
 
 #[cfg(test)]
 mod tests {
-    use bstr::ByteSlice;
+    use bstr::B;
 
-    use crate::object::{Parser, Signature};
+    use super::*;
 
     #[test]
     fn test_parse_signature() {
-        let mut parser = Parser::from_bytes(
-            b"author Andrew Hickman <me@andrewhickman.dev> 1596907199 +0100\n".to_vec(),
-        );
+        let mut parser = Parser::new(B(
+            "author Andrew Hickman <me@andrewhickman.dev> 1596907199 +0100\n",
+        ));
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
-        let buf = parser.finish();
+        let buf = parser.into_inner();
         let signature = Signature::new(&buf, &signature_raw);
 
         assert_eq!(signature.name(), "Andrew Hickman");
@@ -96,11 +107,11 @@ mod tests {
 
     #[test]
     fn test_parse_signature_no_timezone() {
-        let mut parser = Parser::from_bytes(
-            b"author Andrew Hickman <me@andrewhickman.dev> 1596907199\n".to_vec(),
-        );
+        let mut parser = Parser::new(B(
+            "author Andrew Hickman <me@andrewhickman.dev> 1596907199\n",
+        ));
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
-        let buf = parser.finish();
+        let buf = parser.into_inner();
         let signature = Signature::new(&buf, &signature_raw);
 
         assert_eq!(signature.name(), "Andrew Hickman");
@@ -111,10 +122,9 @@ mod tests {
 
     #[test]
     fn test_parse_signature_no_timestamp() {
-        let mut parser =
-            Parser::from_bytes(b"author Andrew Hickman <me@andrewhickman.dev>\n".to_vec());
+        let mut parser = Parser::new(B("author Andrew Hickman <me@andrewhickman.dev>\n"));
         let signature_raw = parser.parse_signature(b"author ").unwrap().unwrap();
-        let buf = parser.finish();
+        let buf = parser.into_inner();
         let signature = Signature::new(&buf, &signature_raw);
 
         assert_eq!(signature.name(), "Andrew Hickman");
