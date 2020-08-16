@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use small_ord_set::SmallOrdSet;
 
 use self::index::{IndexFile, ReadIndexFileError, FindIndexOffsetError};
 use self::pack::{PackFile, ReadPackFileError};
@@ -87,12 +86,13 @@ impl PackedObjectDatabase {
 
     fn try_read_object(&self, short_id: &ShortId) -> Result<Reader, ReadPackedError> {
         let mut result = None;
-        let mut found_ids = SmallOrdSet::<[Id; 4]>::new();
+        let mut found_id = None;
         for entry in self.packs.iter() {
             match entry.value().index.find_offset(short_id) {
                 Err(FindIndexOffsetError::Ambiguous) => return Err(ReadPackedError::Ambiguous),
-                Ok((_, id)) if !found_ids.insert(id) => return Err(ReadPackedError::Ambiguous),
-                Ok((offset, _)) => {
+                Ok((_, id)) if found_id.is_some() && found_id != Some(id) => return Err(ReadPackedError::Ambiguous),
+                Ok((offset, id)) => {
+                    found_id = Some(id);
                     result = Some((entry.value().clone(), offset))
                 },
                 Err(FindIndexOffsetError::NotFound) => continue,
