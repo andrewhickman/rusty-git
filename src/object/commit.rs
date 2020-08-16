@@ -27,16 +27,19 @@ pub(in crate::object) enum ParseCommitError {
 }
 
 impl Commit {
-    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseCommitError> {
+    pub(in crate::object) fn parse(
+        mut parser: Parser<Box<[u8]>>,
+    ) -> Result<Self, ParseCommitError> {
         let tree = parser
             .parse_hex_id_line(b"tree ")
             .map_err(|_| ParseCommitError::Other("invalid tree object id"))?
             .ok_or(ParseCommitError::Other("missing tree object id"))?;
 
         let mut parents = Vec::with_capacity(1);
-        while let Some(parent) = parser.parse_hex_id_line(b"parent ")
+        while let Some(parent) = parser
+            .parse_hex_id_line(b"parent ")
             .map_err(|_| ParseCommitError::Other("invalid parent object id"))?
-         {
+        {
             parents.push(parent);
         }
 

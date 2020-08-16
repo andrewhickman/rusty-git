@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 
-use self::index::{IndexFile, ReadIndexFileError, FindIndexOffsetError};
+use self::index::{FindIndexOffsetError, IndexFile, ReadIndexFileError};
 use self::pack::{PackFile, ReadPackFileError};
 use crate::object::database::Reader;
-use crate::object::{ShortId, Id};
+use crate::object::ShortId;
 use thiserror::Error;
 
 const PACKS_FOLDER: &str = "objects/pack";
@@ -77,7 +77,10 @@ impl PackedObjectDatabase {
         }
     }
 
-    pub(in crate::object::database) fn read_object(&self, short_id: &ShortId) -> Result<Reader, ReadPackedError> {
+    pub(in crate::object::database) fn read_object(
+        &self,
+        short_id: &ShortId,
+    ) -> Result<Reader, ReadPackedError> {
         match self.try_read_object(short_id) {
             Err(ReadPackedError::NotFound) if self.refresh()? => self.try_read_object(short_id),
             result => result,
@@ -90,16 +93,20 @@ impl PackedObjectDatabase {
         for entry in self.packs.iter() {
             match entry.value().index.find_offset(short_id) {
                 Err(FindIndexOffsetError::Ambiguous) => return Err(ReadPackedError::Ambiguous),
-                Ok((_, id)) if found_id.is_some() && found_id != Some(id) => return Err(ReadPackedError::Ambiguous),
+                Ok((_, id)) if found_id.is_some() && found_id != Some(id) => {
+                    return Err(ReadPackedError::Ambiguous)
+                }
                 Ok((offset, id)) => {
                     found_id = Some(id);
                     result = Some((entry.value().clone(), offset))
-                },
+                }
                 Err(FindIndexOffsetError::NotFound) => continue,
-                Err(FindIndexOffsetError::ReadIndexFile(err)) => return Err(ReadPackedError::ReadEntry(ReadEntryError {
-                    name: entry.name.clone(),
-                    kind: ReadEntryErrorKind::ReadIndexFile(err),
-                })),
+                Err(FindIndexOffsetError::ReadIndexFile(err)) => {
+                    return Err(ReadPackedError::ReadEntry(ReadEntryError {
+                        name: entry.name.clone(),
+                        kind: ReadEntryErrorKind::ReadIndexFile(err),
+                    }))
+                }
             }
         }
 
@@ -151,22 +158,24 @@ impl Entry {
 
         let pack = match PackFile::open(path.with_extension("pack")) {
             Ok(pack) => pack,
-            Err(err) => return Err(ReadEntryError {
+            Err(err) => {
+                return Err(ReadEntryError {
                     name,
-                kind: ReadEntryErrorKind::ReadPackFile(err),
-            }),
+                    kind: ReadEntryErrorKind::ReadPackFile(err),
+                })
+            }
         };
 
         if index.count() != pack.count() {
             return Err(ReadEntryError {
-                    name,
+                name,
                 kind: ReadEntryErrorKind::CountMismatch,
             });
         }
 
         if index.id() != pack.id() {
             return Err(ReadEntryError {
-                    name,
+                name,
                 kind: ReadEntryErrorKind::IdMismatch,
             });
         }

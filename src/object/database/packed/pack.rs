@@ -3,12 +3,12 @@ use std::io;
 use std::path::PathBuf;
 
 use byteorder::NetworkEndian;
+use thiserror::Error;
 use zerocopy::byteorder::U32;
 use zerocopy::{FromBytes, LayoutVerified};
-use thiserror::Error;
 
-use crate::object::database::Reader;
 use crate::object::database::packed::ReadPackedError;
+use crate::object::database::Reader;
 use crate::object::{Id, Parser, ID_LEN};
 
 pub(in crate::object::database::packed) struct PackFile {
@@ -25,7 +25,11 @@ pub(in crate::object::database::packed) enum ReadPackFileError {
     #[error("{0}")]
     Other(&'static str),
     #[error("io error reading index file")]
-    Io(#[from]#[source] io::Error),
+    Io(
+        #[from]
+        #[source]
+        io::Error,
+    ),
 }
 
 #[derive(Debug)]
@@ -54,13 +58,18 @@ impl PackFile {
         if !parser.consume_u32(PackFile::SIGNATURE) {
             return Err(ReadPackFileError::InvalidSignature);
         }
-        let version = match parser.parse_u32().map_err(|_| ReadPackFileError::Other("file is too short"))? {
+        let version = match parser
+            .parse_u32()
+            .map_err(|_| ReadPackFileError::Other("file is too short"))?
+        {
             2 => PackFileVersion::V2,
             3 => PackFileVersion::V3,
             n => return Err(ReadPackFileError::UnknownVersion(n)),
         };
 
-        parser.parse_u32().or(Err(ReadPackFileError::Other("file is too short")))?;
+        parser
+            .parse_u32()
+            .or(Err(ReadPackFileError::Other("file is too short")))?;
 
         if parser.remaining() < ID_LEN {
             return Err(ReadPackFileError::Other("file is too short"));

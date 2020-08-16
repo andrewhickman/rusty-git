@@ -1,14 +1,14 @@
 use std::convert::TryFrom;
 use std::fmt;
+use std::io;
 use std::mem::size_of;
 use std::ops::Range;
 use std::path::PathBuf;
-use std::io;
 
 use byteorder::NetworkEndian;
+use thiserror::Error;
 use zerocopy::byteorder::{U32, U64};
 use zerocopy::{FromBytes, LayoutVerified};
-use thiserror::Error;
 
 use crate::object::{Id, Parser, ShortId, ID_LEN};
 
@@ -25,7 +25,11 @@ pub(in crate::object::database::packed) enum ReadIndexFileError {
     #[error("{0}")]
     Other(&'static str),
     #[error("io error reading pack file index")]
-    Io(#[from]#[source] io::Error),
+    Io(
+        #[from]
+        #[source]
+        io::Error,
+    ),
 }
 
 #[derive(Debug, Error)]
@@ -73,7 +77,8 @@ impl IndexFile {
 
     fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ReadIndexFileError> {
         let version = if parser.consume_u32(IndexFile::SIGNATURE) {
-            let version = parser.parse_u32()
+            let version = parser
+                .parse_u32()
                 .map_err(|_| ReadIndexFileError::Other("file is too short"))?;
 
             match version {
@@ -86,13 +91,16 @@ impl IndexFile {
 
         let mut count = 0;
         for _ in 0..IndexFile::LEVEL_ONE_COUNT {
-            let n = parser.parse_u32().map_err(|_| ReadIndexFileError::Other("file is too short"))?;
+            let n = parser
+                .parse_u32()
+                .map_err(|_| ReadIndexFileError::Other("file is too short"))?;
             if n < count {
                 return Err(ReadIndexFileError::Other("the fan out is not monotonic"));
             }
             count = n;
         }
-        let count = usize::try_from(count).or(Err(ReadIndexFileError::Other("invalid index count")))?;
+        let count =
+            usize::try_from(count).or(Err(ReadIndexFileError::Other("invalid index count")))?;
 
         let mut min_size = count
             .checked_mul(version.entry_len())
@@ -187,7 +195,7 @@ impl IndexFile {
         };
 
         let offset = usize::try_from(offset)
-                        .map_err(|_| FindIndexOffsetError::read_index_file("invalid offset"))?;
+            .map_err(|_| FindIndexOffsetError::read_index_file("invalid offset"))?;
 
         Ok((offset, id))
     }
@@ -207,8 +215,7 @@ impl IndexFile {
             .unwrap()
             .into_slice()
             .get(range)
-                        .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))
-            ?)
+            .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))?)
     }
 
     fn entries_v2(&self, range: Range<usize>) -> Result<&[EntryV2], FindIndexOffsetError> {
@@ -216,8 +223,7 @@ impl IndexFile {
             .unwrap()
             .into_slice()
             .get(range)
-                        .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))
-            ?)
+            .ok_or(FindIndexOffsetError::read_index_file("invalid offset"))?)
     }
 
     fn entries(&self) -> &[u8] {

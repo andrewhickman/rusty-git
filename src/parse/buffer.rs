@@ -39,12 +39,13 @@ impl<R: Read> Buffer<R> {
         Ok(Parser::with_position(buffer, pos))
     }
 
-    /// Read until the delimiter byte is encountered, the end of the reader
-    /// is reached, or the maximum number of bytes has been read.
+    /// Read from the reader, calling `pred` on each byte slice until it returns the offset of the end.
     ///
-    /// Returns a slice containing the read bytes, up to and including
-    /// the delimiter byte.
-    pub(crate) fn read_until(&mut self, delim: u8, size: usize) -> Result<Range<usize>, Error> {
+    /// If `pred` never returns an offset, the buffer position is not advanced and `None` is returned.
+    pub(crate) fn read_until<F>(&mut self, size: usize, mut pred: F) -> Result<Option<Range<usize>>, Error>
+    where
+        F: FnMut(&[u8]) -> Option<usize>,
+    {
         let start = self.pos;
         let end = start + size;
 
@@ -56,15 +57,31 @@ impl<R: Read> Buffer<R> {
                 Err(err) => return Err(Error::Io(err)),
             };
 
-            if let Some(index) = memchr(delim, buf) {
-                self.pos += index + 1;
-                return Ok(start..self.pos);
+            if let Some(end) = pred(buf) {
+                self.pos += end;
+                return Ok(Some(start..self.pos));
             }
 
             self.pos += buf.len();
         }
 
-        Err(Error::DelimNotFound(delim))
+        self.pos = start;
+        Ok(None)
+    }
+
+    /// Read until the delimiter byte is encountered, the end of the reader
+    /// is reached, or the maximum number of bytes has been read.
+    ///
+    /// Returns a slice containing the read bytes, up to and including
+    /// the delimiter byte.
+    pub(crate) fn read_until_byte(
+        &mut self,
+        delim: u8,
+        size: usize,
+    ) -> Result<Option<Range<usize>>, Error> {
+        self.read_until(size, move |slice| {
+            memchr(delim, slice).map(|index| index + 1)
+        })
     }
 
     /// Read from the reader until the end and close it, returning a
@@ -323,7 +340,7 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_until(b'n', size).unwrap(), 0..13);
+        assert_eq!(buffer.read_until_byte(b'n', size).unwrap().unwrap(), 0..13);
     }
 
     #[test]
@@ -351,7 +368,7 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_until(b'n', size).unwrap(), 0..13);
+        assert_eq!(buffer.read_until_byte(b'n', size).unwrap().unwrap(), 0..13);
     }
 
     #[test]
@@ -379,10 +396,8 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        match buffer.read_until(b'z', size).unwrap_err() {
-            Error::DelimNotFound(b'z') => (),
-            err => panic!("unexpected error {:?}", err),
-        }
+        assert!(buffer.read_until_byte(b'z', size).unwrap().is_none());
+        assert_eq!(buffer.pos, 0);
     }
 
     #[test]
@@ -409,7 +424,7 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        match buffer.read_until(b'z', size).unwrap_err() {
+        match buffer.read_until_byte(b'z', size).unwrap_err() {
             Error::UnexpectedEof => (),
             err => panic!("unexpected error {:?}", err),
         }
@@ -436,10 +451,7 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        match buffer.read_until(b'z', size).unwrap_err() {
-            Error::DelimNotFound(b'z') => (),
-            err => panic!("unexpected error {:?}", err),
-        }
+        assert!(buffer.read_until_byte(b'z', size).unwrap().is_none());
     }
 
     #[test]
@@ -468,7 +480,7 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_until(b'n', size).unwrap(), 0..13);
+        assert_eq!(buffer.read_until_byte(b'n', size).unwrap().unwrap(), 0..13);
     }
 
     #[test]
@@ -493,8 +505,8 @@ mod tests {
 
         let mut buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_until(b'z', size).unwrap(), 0..13);
-        assert_eq!(buffer.read_until(b'z', size).unwrap(), 13..28);
+        assert_eq!(buffer.read_until_byte(b'z', size).unwrap().unwrap(), 0..13);
+        assert_eq!(buffer.read_until_byte(b'z', size).unwrap().unwrap(), 13..28);
     }
 
     #[test]

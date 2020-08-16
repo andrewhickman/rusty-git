@@ -71,8 +71,9 @@ impl ObjectDatabase {
         }
 
         // object may have just been packed, try again
-        self.packed.read_object(&ShortId::from(id))
-            .map_err(|err |ReadObjectError::new(id, ReadError::from(err)))
+        self.packed
+            .read_object(&ShortId::from(id))
+            .map_err(|err| ReadObjectError::new(id, ReadError::from(err)))
     }
 
     pub fn write_object(&self, bytes: &[u8]) -> Result<Id, WriteError> {
@@ -102,8 +103,6 @@ impl From<ReadPackedError> for ReadError {
 
 impl From<WriteLooseError> for WriteError {
     fn from(err: WriteLooseError) -> Self {
-        WriteError {
-            kind: err.into()
-        }
+        WriteError { kind: err.into() }
     }
 }

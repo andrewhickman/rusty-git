@@ -27,10 +27,10 @@ use zerocopy::FromBytes;
 
 use self::blob::ParseBlobError;
 use self::commit::ParseCommitError;
+use self::parse::ParseObjectError;
 use self::tag::ParseTagError;
 use self::tree::ParseTreeError;
 use crate::parse::{Buffer, Parser};
-use self::parse::ParseObjectError;
 
 pub const ID_LEN: usize = 20;
 pub const ID_HEX_LEN: usize = ID_LEN * 2;

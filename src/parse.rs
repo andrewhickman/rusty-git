@@ -14,8 +14,6 @@ use crate::object::ParseIdError;
 
 #[derive(Debug, Error)]
 pub(crate) enum Error {
-    #[error("expected byte {0:?} was not found")]
-    DelimNotFound(u8),
     #[error("unexpected end of file")]
     UnexpectedEof,
     #[error("the file length is invalid")]

@@ -77,7 +77,8 @@ impl Header {
 
 impl<R: Read> Buffer<R> {
     pub(in crate::object) fn read_object_header(&mut self) -> Result<Header, ParseHeaderError> {
-        let range = self.read_until(b'\0', Header::MAX_LEN)?;
+        let range = self.read_until_byte(b'\0', Header::MAX_LEN)?
+            .ok_or(ParseHeaderError::Other("the end of the header was not found"))?;
         let mut parser = self.parser(range);
         let header = parser.parse_object_header()?;
         debug_assert!(parser.finished());

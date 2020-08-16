@@ -5,8 +5,8 @@ use std::slice::SliceIndex;
 use byteorder::{ByteOrder, NetworkEndian};
 use memchr::memchr;
 
+use crate::object::{Id, ID_HEX_LEN};
 use crate::parse::Error;
-use crate::object::{ID_HEX_LEN, Id};
 
 pub(crate) struct Parser<B> {
     buffer: B,

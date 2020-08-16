@@ -9,7 +9,7 @@ use flate2::Compression;
 use thiserror::Error;
 
 use crate::object::database::Reader;
-use crate::object::{Id };
+use crate::object::Id;
 
 const OBJECTS_FOLDER: &str = "objects";
 
@@ -49,7 +49,10 @@ impl LooseObjectDatabase {
         }
     }
 
-    pub(in crate::object::database) fn read_object(&self, id: &Id) -> Result<Reader, ReadLooseError> {
+    pub(in crate::object::database) fn read_object(
+        &self,
+        id: &Id,
+    ) -> Result<Reader, ReadLooseError> {
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);
         let mut path = self.path.join(dir);
@@ -62,7 +65,10 @@ impl LooseObjectDatabase {
         }
     }
 
-    pub(in crate::object::database) fn write_object(&self, bytes: &[u8]) -> Result<Id, WriteLooseError> {
+    pub(in crate::object::database) fn write_object(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Id, WriteLooseError> {
         let id = Id::from_hash(bytes);
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);
