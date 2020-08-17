@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use byteorder::NetworkEndian;
+use bytes::Bytes;
 use thiserror::Error;
 use zerocopy::byteorder::{U32, U64};
 use zerocopy::{FromBytes, LayoutVerified};
@@ -14,7 +15,7 @@ use crate::object::{Id, ShortId, ID_LEN};
 use crate::parse::Parser;
 
 pub(in crate::object::database::packed) struct IndexFile {
-    data: Box<[u8]>,
+    data: Bytes,
     version: Version,
     count: usize,
 }
@@ -72,11 +73,11 @@ impl IndexFile {
     const TRAILER_LEN: usize = ID_LEN + ID_LEN;
 
     pub fn open(path: PathBuf) -> Result<Self, ReadIndexFileError> {
-        let bytes = fs_err::read(path)?.into_boxed_slice();
+        let bytes = Bytes::from(fs_err::read(path)?);
         IndexFile::parse(Parser::new(bytes))
     }
 
-    fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ReadIndexFileError> {
+    fn parse(mut parser: Parser<Bytes>) -> Result<Self, ReadIndexFileError> {
         let version = if parser.consume_u32(IndexFile::SIGNATURE) {
             let version = parser
                 .parse_u32()

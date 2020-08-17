@@ -1,6 +1,7 @@
 use std::io::{self, Read};
 use std::str::{self, FromStr};
 
+use bytes::Bytes;
 use thiserror::Error;
 
 use crate::object::{
@@ -97,7 +98,7 @@ impl<R: Read> Buffer<R> {
     }
 }
 
-impl Parser<Box<[u8]>> {
+impl Parser<Bytes> {
     fn parse_object_body(self, kind: ObjectKind) -> Result<ObjectData, ParseObjectError> {
         match kind {
             ObjectKind::Blob => Blob::parse(self)

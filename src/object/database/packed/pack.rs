@@ -2,17 +2,17 @@ use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use byteorder::NetworkEndian;
-use thiserror::Error;
-use zerocopy::byteorder::U32;
-use zerocopy::FromBytes;
-
+use bytes::Bytes;
 use dashmap::mapref::entry::Entry as DashMapEntry;
 use dashmap::DashMap;
 use fs_err::File;
 use smallvec::SmallVec;
+use thiserror::Error;
+use zerocopy::byteorder::U32;
+use zerocopy::FromBytes;
 
 use crate::object::database::packed::index::{FindIndexOffsetError, IndexFile};
 use crate::object::{Id, ObjectKind, ParseObjectError, ShortId, ID_LEN};
@@ -21,7 +21,7 @@ use crate::parse;
 pub(in crate::object::database::packed) struct PackFile {
     id: Id,
     file: Mutex<parse::Buffer<File>>,
-    cache: DashMap<u64, Arc<Box<[u8]>>>,
+    cache: DashMap<u64, Bytes>,
     version: PackFileVersion,
     count: u32,
 }
@@ -120,11 +120,7 @@ impl PackFile {
         })
     }
 
-    pub fn read_object(
-        &self,
-        index: &IndexFile,
-        offset: u64,
-    ) -> Result<Arc<Box<[u8]>>, ReadPackFileError> {
+    pub fn read_object(&self, index: &IndexFile, offset: u64) -> Result<Bytes, ReadPackFileError> {
         if let Some(cached_object) = self.cache.get(&offset) {
             return Ok(cached_object.clone());
         }
@@ -142,7 +138,7 @@ impl PackFile {
         &self,
         index: &IndexFile,
         mut offset: u64,
-    ) -> Result<(Chain, Arc<Box<[u8]>>), ReadPackFileError> {
+    ) -> Result<(Chain, Bytes), ReadPackFileError> {
         let mut chain = Chain::new();
 
         let mut buffer = self.file.lock().unwrap();
@@ -170,7 +166,7 @@ impl PackFile {
                     offset
                 }
                 _ => {
-                    let base = Arc::new(buffer.read_to_end_by_ref(header.len)?);
+                    let base = buffer.read_to_end_by_ref(header.len)?;
                     cache_entry.insert(base.clone());
                     return Ok((chain, base));
                 }

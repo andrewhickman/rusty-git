@@ -2,14 +2,16 @@ use std::fmt;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
+use bytes::Bytes;
 use thiserror::Error;
 
 use crate::object::parse::ParseObjectKindError;
 use crate::object::signature::{ParseSignatureError, Signature, SignatureRaw};
 use crate::object::{Id, ObjectKind, Parser, ID_HEX_LEN};
 
+#[derive(Clone)]
 pub struct Tag {
-    data: Box<[u8]>,
+    data: Bytes,
     tag: Range<usize>,
     object: usize,
     kind: ObjectKind,
@@ -28,7 +30,7 @@ pub(in crate::object) enum ParseTagError {
 }
 
 impl Tag {
-    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseTagError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Bytes>) -> Result<Self, ParseTagError> {
         let object = parser
             .parse_hex_id_line(b"object ")
             .map_err(|_| ParseTagError::Other("object field not found"))?

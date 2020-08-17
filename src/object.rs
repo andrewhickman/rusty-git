@@ -48,7 +48,7 @@ pub struct ShortId {
     len: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ObjectData {
     Commit(Commit),
     Tree(Tree),
@@ -66,7 +66,7 @@ pub enum ObjectKind {
     RefDelta = 7,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Object {
     id: Id,
     data: ObjectData,

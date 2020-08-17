@@ -2,16 +2,19 @@ use std::fmt;
 use std::ops::Range;
 
 use bstr::{BStr, ByteSlice};
+use bytes::Bytes;
+use smallvec::SmallVec;
 
 use crate::object::signature::{ParseSignatureError, Signature, SignatureRaw};
 use crate::object::{Id, ID_HEX_LEN};
 use crate::parse::Parser;
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct Commit {
-    data: Box<[u8]>,
+    data: Bytes,
     tree: usize,
-    parents: Vec<usize>,
+    parents: SmallVec<[usize; 1]>,
     author: SignatureRaw,
     committer: SignatureRaw,
     encoding: Option<Range<usize>>,
@@ -27,15 +30,13 @@ pub(in crate::object) enum ParseCommitError {
 }
 
 impl Commit {
-    pub(in crate::object) fn parse(
-        mut parser: Parser<Box<[u8]>>,
-    ) -> Result<Self, ParseCommitError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Bytes>) -> Result<Self, ParseCommitError> {
         let tree = parser
             .parse_hex_id_line(b"tree ")
             .map_err(|_| ParseCommitError::Other("invalid tree object id"))?
             .ok_or(ParseCommitError::Other("missing tree object id"))?;
 
-        let mut parents = Vec::with_capacity(1);
+        let mut parents = SmallVec::new();
         while let Some(parent) = parser
             .parse_hex_id_line(b"parent ")
             .map_err(|_| ParseCommitError::Other("invalid parent object id"))?

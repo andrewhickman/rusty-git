@@ -1,12 +1,14 @@
 use std::fmt;
 
 use bstr::{BStr, ByteSlice};
+use bytes::Bytes;
 use thiserror::Error;
 
 use crate::parse::Parser;
 
+#[derive(Clone)]
 pub struct Blob {
-    data: Box<[u8]>,
+    data: Bytes,
     pos: usize,
 }
 
@@ -14,7 +16,7 @@ pub struct Blob {
 pub enum ParseBlobError {}
 
 impl Blob {
-    pub(in crate::object) fn parse(parser: Parser<Box<[u8]>>) -> Result<Self, ParseBlobError> {
+    pub(in crate::object) fn parse(parser: Parser<Bytes>) -> Result<Self, ParseBlobError> {
         Ok(Blob {
             pos: parser.pos(),
             data: parser.into_inner(),

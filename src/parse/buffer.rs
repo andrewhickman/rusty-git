@@ -3,6 +3,7 @@ use std::mem;
 use std::ops::Range;
 use std::slice::SliceIndex;
 
+use bytes::{Bytes, BytesMut};
 use memchr::memchr;
 
 use crate::object::{Id, ID_LEN};
@@ -11,7 +12,7 @@ use crate::parse::{Error, Parser};
 /// Similar to std::io::BufReader, but with a variable sized buffer
 /// specialized for parsing git objects.
 pub(crate) struct Buffer<R> {
-    buffer: Vec<u8>,
+    buffer: BytesMut,
     reader: R,
     // Marks the first byte not yet observed by the user.
     pos: usize,
@@ -21,7 +22,7 @@ impl<R: Read> Buffer<R> {
     pub fn new(reader: R) -> Self {
         Buffer {
             reader,
-            buffer: Vec::new(),
+            buffer: BytesMut::new(),
             pos: 0,
         }
     }
@@ -29,7 +30,7 @@ impl<R: Read> Buffer<R> {
     pub fn with_capacity(reader: R, capacity: usize) -> Self {
         Buffer {
             reader,
-            buffer: Vec::with_capacity(capacity),
+            buffer: BytesMut::with_capacity(capacity),
             pos: 0,
         }
     }
@@ -53,7 +54,7 @@ impl<R: Read> Buffer<R> {
     }
 
     /// Read into an owned parser, .
-    pub fn read_to_end_into_parser(self, size: usize) -> Result<Parser<Box<[u8]>>, Error> {
+    pub fn read_to_end_into_parser(self, size: usize) -> Result<Parser<Bytes>, Error> {
         let pos = self.pos;
         let buffer = self.read_to_end(size)?;
         Ok(Parser::with_position(buffer, pos))
@@ -131,28 +132,15 @@ impl<R: Read> Buffer<R> {
     /// Read from the reader until the end and close it, returning a
     /// buffer containing its entire contents. If the total number of
     /// bytes read is not `size`, returns an error.
-    pub fn read_to_end(mut self, size: usize) -> Result<Box<[u8]>, Error> {
+    pub fn read_to_end(mut self, size: usize) -> Result<Bytes, Error> {
         self.read_to_end_by_ref(size)
     }
 
     /// Read from the reader until the end and close it, returning a
     /// buffer containing its entire contents. If the total number of
     /// bytes read is not `size`, returns an error.
-    pub fn read_to_end_by_ref(&mut self, size: usize) -> Result<Box<[u8]>, Error> {
-        let end = self.pos.checked_add(size).ok_or(Error::InvalidLength)?;
-        self.buffer
-            .reserve_exact(self.buffer.len().saturating_sub(end));
-
-        while self.pos != end {
-            let buf = match self.fill_buf_to(end) {
-                Ok(&[]) => return Err(Error::InvalidLength),
-                Ok(buf) => buf,
-                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(Error::Io(err)),
-            };
-
-            self.pos += buf.len();
-        }
+    pub fn read_to_end_by_ref(&mut self, size: usize) -> Result<Bytes, Error> {
+        self.read_exact(size)?;
 
         // Read::read_to_end will grow the buffer unnecessarily for the
         // final zero-sized read call. Since we know the buffer size
@@ -168,7 +156,7 @@ impl<R: Read> Buffer<R> {
 
         let buffer = mem::take(&mut self.buffer);
         self.pos = 0;
-        Ok(buffer.into_boxed_slice())
+        Ok(buffer.freeze())
     }
 
     /// Reads up to the byte at `end`, starting from `self.pos`, from the reader.

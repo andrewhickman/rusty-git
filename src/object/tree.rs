@@ -1,15 +1,18 @@
 use std::fmt;
 use std::ops::Range;
 use std::str;
+use std::sync::Arc;
 
 use bstr::{BStr, ByteSlice};
+use bytes::Bytes;
 use thiserror::Error;
 
 use crate::object::{Id, Parser, ID_LEN};
 
+#[derive(Clone)]
 pub struct Tree {
-    data: Box<[u8]>,
-    entries: Box<[TreeEntryRaw]>,
+    data: Bytes,
+    entries: Arc<[TreeEntryRaw]>,
 }
 
 pub struct TreeEntry<'a> {
@@ -29,7 +32,7 @@ struct TreeEntryRaw {
 }
 
 impl Tree {
-    pub(in crate::object) fn parse(mut parser: Parser<Box<[u8]>>) -> Result<Self, ParseTreeError> {
+    pub(in crate::object) fn parse(mut parser: Parser<Bytes>) -> Result<Self, ParseTreeError> {
         let mut entries = Vec::with_capacity(parser.remaining() / 140);
 
         while !parser.finished() {
@@ -53,7 +56,7 @@ impl Tree {
 
         Ok(Tree {
             data: parser.into_inner(),
-            entries: entries.into_boxed_slice(),
+            entries: Arc::from(entries.as_slice()),
         })
     }
 
