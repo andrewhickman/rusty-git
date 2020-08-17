@@ -2,25 +2,26 @@ use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use byteorder::NetworkEndian;
 use thiserror::Error;
 use zerocopy::byteorder::U32;
 use zerocopy::FromBytes;
 
+use dashmap::mapref::entry::Entry as DashMapEntry;
 use dashmap::DashMap;
 use fs_err::File;
 use smallvec::SmallVec;
 
-use crate::object::database::Reader;
-use crate::object::{Id, ObjectKind, ID_LEN};
+use crate::object::database::packed::index::{FindIndexOffsetError, IndexFile};
+use crate::object::{Id, ObjectKind, ParseObjectError, ShortId, ID_LEN};
 use crate::parse;
 
 pub(in crate::object::database::packed) struct PackFile {
     id: Id,
     file: Mutex<parse::Buffer<File>>,
-    bases: DashMap<usize, PackObject>,
+    cache: DashMap<u64, Arc<Box<[u8]>>>,
     version: PackFileVersion,
     count: u32,
 }
@@ -33,13 +34,23 @@ pub(in crate::object::database::packed) enum ReadPackFileError {
     UnknownVersion(u32),
     #[error("cannot parse object type `{0}`")]
     UnknownType(u8),
-    #[error("the pack file is too short")]
-    TooShort,
+    #[error("error finding base object offset in pack index file")]
+    FindIndexOffset(
+        #[from]
+        #[source]
+        FindIndexOffsetError,
+    ),
+    #[error("a base object is invalid")]
+    ParseObjectError(
+        #[from]
+        #[source]
+        ParseObjectError,
+    ),
     #[error("{0}")]
     Other(&'static str),
     #[error(transparent)]
     Parse(#[from] parse::Error),
-    #[error("io error reading index file")]
+    #[error("io error reading pack index file")]
     Io(
         #[from]
         #[source]
@@ -59,10 +70,6 @@ struct PackFileHeader {
     signature: U32<NetworkEndian>,
     version: U32<NetworkEndian>,
     count: U32<NetworkEndian>,
-}
-
-struct PackObject {
-    data: Box<[u8]>,
 }
 
 #[derive(Debug)]
@@ -106,16 +113,24 @@ impl PackFile {
 
         Ok(PackFile {
             version,
-            bases: DashMap::new(),
+            cache: DashMap::new(),
             count: header.count.get(),
             file,
             id,
         })
     }
 
-    pub fn read_object(&self, offset: u64) -> Result<Reader, ReadPackFileError> {
-        let chain = self.chain(offset)?;
-        dbg!(chain);
+    pub fn read_object(
+        &self,
+        index: &IndexFile,
+        offset: u64,
+    ) -> Result<Arc<Box<[u8]>>, ReadPackFileError> {
+        if let Some(cached_object) = self.cache.get(&offset) {
+            return Ok(cached_object.clone());
+        }
+
+        let (chain, base) = self.chain(index, offset)?;
+
         todo!()
     }
 
@@ -123,22 +138,24 @@ impl PackFile {
         self.count
     }
 
-    fn chain(&self, mut offset: u64) -> Result<Chain, ReadPackFileError> {
+    fn chain(
+        &self,
+        index: &IndexFile,
+        mut offset: u64,
+    ) -> Result<(Chain, Arc<Box<[u8]>>), ReadPackFileError> {
         let mut chain = Chain::new();
 
         let mut buffer = self.file.lock().unwrap();
 
         loop {
+            let cache_entry = match self.cache.entry(offset) {
+                DashMapEntry::Occupied(entry) => return Ok((chain, entry.get().clone())),
+                DashMapEntry::Vacant(entry) => entry,
+            };
+
             buffer.seek(SeekFrom::Start(offset))?;
 
             let header = buffer.read_pack_object_header()?;
-
-            chain.push(ChainEntry {
-                key: offset,
-                offset: offset + buffer.pos() as u64,
-                len: header.len,
-                kind: header.kind,
-            });
 
             let base_offset = match header.kind {
                 ObjectKind::OfsDelta => {
@@ -147,10 +164,28 @@ impl PackFile {
                         .checked_sub(delta_offset)
                         .ok_or(ReadPackFileError::Other("invalid delta offset"))?
                 }
-                ObjectKind::RefDelta => todo!(),
-                _ => return Ok(chain),
+                ObjectKind::RefDelta => {
+                    let id = buffer.read_delta_reference()?;
+                    let (offset, _) = index.find_offset(&ShortId::from(id))?;
+                    offset
+                }
+                _ => {
+                    let base = Arc::new(buffer.read_to_end_by_ref(header.len)?);
+                    cache_entry.insert(base.clone());
+                    return Ok((chain, base));
+                }
             };
 
+            chain.push(ChainEntry {
+                key: offset,
+                offset: offset + buffer.pos() as u64,
+                len: header.len,
+                kind: header.kind,
+            });
+
+            if base_offset == offset {
+                return Err(ReadPackFileError::Other("loop in deltas"));
+            }
             offset = base_offset;
         }
     }
@@ -214,7 +249,9 @@ impl<R: Read> parse::Buffer<R> {
     fn read_delta_offset(&mut self) -> Result<u64, ReadPackFileError> {
         let range = self
             .read_until(PackObjectHeader::MAX_DELTA_OFFSET_LEN, |slice| {
-                slice.iter().position(|&byte| byte & 0b1000_0000 == 0)
+                slice
+                    .iter()
+                    .position(|&byte| byte & 0b1000_0000 == 0)
                     .map(|offset| offset + 1)
             })?
             .ok_or(ReadPackFileError::Other("invalid delta offset"))?;

@@ -1,4 +1,5 @@
 use std::io::{self, Read, Seek, SeekFrom};
+use std::mem;
 use std::ops::Range;
 use std::slice::SliceIndex;
 
@@ -131,6 +132,13 @@ impl<R: Read> Buffer<R> {
     /// buffer containing its entire contents. If the total number of
     /// bytes read is not `size`, returns an error.
     pub fn read_to_end(mut self, size: usize) -> Result<Box<[u8]>, Error> {
+        self.read_to_end_by_ref(size)
+    }
+
+    /// Read from the reader until the end and close it, returning a
+    /// buffer containing its entire contents. If the total number of
+    /// bytes read is not `size`, returns an error.
+    pub fn read_to_end_by_ref(&mut self, size: usize) -> Result<Box<[u8]>, Error> {
         let end = self.pos.checked_add(size).ok_or(Error::InvalidLength)?;
         self.buffer
             .reserve_exact(self.buffer.len().saturating_sub(end));
@@ -158,7 +166,9 @@ impl<R: Read> Buffer<R> {
             }
         }
 
-        Ok(self.buffer.into_boxed_slice())
+        let buffer = mem::take(&mut self.buffer);
+        self.pos = 0;
+        Ok(buffer.into_boxed_slice())
     }
 
     /// Reads up to the byte at `end`, starting from `self.pos`, from the reader.

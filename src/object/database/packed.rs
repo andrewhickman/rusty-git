@@ -51,13 +51,13 @@ pub(in crate::object) struct ReadEntryError {
 
 #[derive(Debug, Error)]
 enum ReadEntryErrorKind {
-    #[error("failed to read the index file")]
+    #[error("failed to read the pack index file")]
     ReadIndexFile(ReadIndexFileError),
     #[error("failed to read the pack file")]
     ReadPackFile(ReadPackFileError),
-    #[error("the index file and pack file have a different number of entries")]
+    #[error("the pack index file and pack file have a different number of entries")]
     CountMismatch,
-    #[error("the index file and pack file have a different id")]
+    #[error("the pack index file and pack file have a different id")]
     IdMismatch,
 }
 
@@ -111,8 +111,8 @@ impl PackedObjectDatabase {
         }
 
         match result {
-            Some((entry, offset)) => match entry.pack.read_object(offset) {
-                Ok(reader) => Ok(reader),
+            Some((entry, offset)) => match entry.pack.read_object(&entry.index, offset) {
+                Ok(reader) => Ok(todo!()),
                 Err(err) => Err(ReadPackedError::ReadEntry(ReadEntryError {
                     name: entry.name.clone(),
                     kind: ReadEntryErrorKind::ReadPackFile(err),
