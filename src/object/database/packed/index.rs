@@ -372,7 +372,7 @@ mod tests {
         bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
         bytes.extend(Id::default().as_bytes());
 
-        let parser = Parser::new(bytes.into_boxed_slice());
+        let parser = Parser::new(bytes.into());
 
         let index = IndexFile::parse(parser).unwrap();
 
@@ -443,7 +443,7 @@ mod tests {
         bytes.extend(id("ea0e0aa8f197e86ba6d2c2203e280b26ecbadb76").as_bytes());
         bytes.extend(Id::default().as_bytes());
 
-        let parser = Parser::new(bytes.into_boxed_slice());
+        let parser = Parser::new(bytes.into());
 
         let index = IndexFile::parse(parser).unwrap();
 

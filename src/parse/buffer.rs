@@ -275,7 +275,7 @@ mod tests {
 
         let mut buffer = Buffer {
             reader,
-            buffer: bytes[..buffered].to_vec(),
+            buffer: bytes[..buffered].into(),
             pos,
         };
 
@@ -300,7 +300,7 @@ mod tests {
 
         let mut buffer = Buffer {
             reader,
-            buffer: bytes[..buffered].to_vec(),
+            buffer: bytes[..buffered].into(),
             pos,
         };
 
@@ -319,7 +319,7 @@ mod tests {
 
         let mut buffer = Buffer {
             reader,
-            buffer: bytes.to_vec(),
+            buffer: bytes.as_ref().into(),
             pos: 0,
         };
 
@@ -583,7 +583,7 @@ mod tests {
 
         let buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_to_end(size).unwrap(), Box::from(*bytes));
+        assert_eq!(buffer.read_to_end(size).unwrap().as_ref(), bytes);
     }
 
     #[test]
@@ -609,6 +609,6 @@ mod tests {
 
         let buffer = Buffer::new(reader);
 
-        assert_eq!(buffer.read_to_end(size).unwrap(), Box::from(*bytes));
+        assert_eq!(buffer.read_to_end(size).unwrap().as_ref(), bytes);
     }
 }

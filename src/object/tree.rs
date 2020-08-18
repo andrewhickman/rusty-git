@@ -110,7 +110,7 @@ mod tests {
 100644 .gitignore\0\x69\x36\x99\x04\x2b\x1a\x8c\xcf\x69\x76\x36\xd3\xcd\x34\xb2\x00\xf3\xa8\x27\x8b\
 "
             .to_vec()
-            .into_boxed_slice(),
+            .into(),
         );
 
         let tree = Tree::parse(parser).unwrap();

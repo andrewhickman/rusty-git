@@ -156,7 +156,7 @@ encoding UTF-8
 
 message"
                 .to_vec()
-                .into_boxed_slice(),
+                .into()
         );
 
         let commit = Commit::parse(parser).unwrap();
