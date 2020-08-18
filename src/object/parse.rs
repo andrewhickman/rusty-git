@@ -5,8 +5,8 @@ use bytes::Bytes;
 use thiserror::Error;
 
 use crate::object::{
-    Blob, Commit, ObjectData, ObjectKind, ParseBlobError, ParseCommitError, ParseTagError,
-    ParseTreeError, Tag, Tree,
+    Blob, Commit, ObjectData, ObjectHeader, ObjectKind, ParseBlobError, ParseCommitError,
+    ParseTagError, ParseTreeError, Tag, Tree,
 };
 use crate::parse::{self, Buffer, Parser};
 
@@ -50,12 +50,6 @@ pub(in crate::object) enum ParseObjectError {
 #[error("unknown object type `{0}`")]
 pub(in crate::object) struct ParseObjectKindError(String);
 
-#[derive(Debug, PartialEq)]
-pub(in crate::object) struct Header {
-    pub kind: ObjectKind,
-    pub len: usize,
-}
-
 #[derive(Debug, Error)]
 pub(in crate::object) enum ParseHeaderError {
     #[error("unsupported object type")]
@@ -72,14 +66,16 @@ pub(in crate::object) enum ParseHeaderError {
     Parse(parse::Error),
 }
 
-impl Header {
+impl ObjectHeader {
     const MAX_LEN: usize = 28;
 }
 
 impl<R: Read> Buffer<R> {
-    pub(in crate::object) fn read_object_header(&mut self) -> Result<Header, ParseHeaderError> {
+    pub(in crate::object) fn read_object_header(
+        &mut self,
+    ) -> Result<ObjectHeader, ParseHeaderError> {
         let range =
-            self.read_until_byte(b'\0', Header::MAX_LEN)?
+            self.read_until_byte(b'\0', ObjectHeader::MAX_LEN)?
                 .ok_or(ParseHeaderError::Other(
                     "the end of the header was not found",
                 ))?;
@@ -89,8 +85,10 @@ impl<R: Read> Buffer<R> {
         Ok(header)
     }
 
-    pub(in crate::object) fn read_object(mut self) -> Result<ObjectData, ParseObjectError> {
-        let header = self.read_object_header()?;
+    pub(in crate::object) fn read_object_body(
+        self,
+        header: ObjectHeader,
+    ) -> Result<ObjectData, ParseObjectError> {
         let parser = self
             .read_to_end_into_parser(header.len)
             .map_err(ParseHeaderError::from)?;
@@ -121,7 +119,9 @@ impl Parser<Bytes> {
 }
 
 impl<B: AsRef<[u8]>> Parser<B> {
-    pub(in crate::object) fn parse_object_header(&mut self) -> Result<Header, ParseHeaderError> {
+    pub(in crate::object) fn parse_object_header(
+        &mut self,
+    ) -> Result<ObjectHeader, ParseHeaderError> {
         debug_assert_eq!(self.pos(), 0);
 
         let kind = self
@@ -136,7 +136,7 @@ impl<B: AsRef<[u8]>> Parser<B> {
             .map_err(|_| ParseHeaderError::Other("failed to parse object length"))?;
         let len = usize::from_str(&len).map_err(|_| ParseHeaderError::LengthTooBig)?;
 
-        Ok(Header { kind, len })
+        Ok(ObjectHeader { kind, len })
     }
 }
 
@@ -174,25 +174,28 @@ impl From<parse::Error> for ParseHeaderError {
 
 #[test]
 fn test_max_header_len() {
-    assert_eq!(Header::MAX_LEN, format!("commit {}\0", u64::MAX).len());
+    assert_eq!(
+        ObjectHeader::MAX_LEN,
+        format!("commit {}\0", u64::MAX).len()
+    );
 }
 
 #[test]
 fn test_parse_header() {
-    fn parse_header(bytes: &[u8]) -> Result<Header, ParseHeaderError> {
+    fn parse_header(bytes: &[u8]) -> Result<ObjectHeader, ParseHeaderError> {
         Parser::new(bytes).parse_object_header()
     }
 
     assert_eq!(
         parse_header(b"tree 3\0abc").unwrap(),
-        Header {
+        ObjectHeader {
             kind: ObjectKind::Tree,
             len: 3,
         }
     );
     assert_eq!(
         parse_header(b"blob 3\0abc").unwrap(),
-        Header {
+        ObjectHeader {
             kind: ObjectKind::Blob,
             len: 3,
         }

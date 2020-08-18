@@ -3,12 +3,11 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
 use filetime::{set_file_mtime, FileTime};
-use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use thiserror::Error;
 
-use crate::object::database::Reader;
+use crate::object::database::ObjectReader;
 use crate::object::Id;
 
 const OBJECTS_FOLDER: &str = "objects";
@@ -52,14 +51,14 @@ impl LooseObjectDatabase {
     pub(in crate::object::database) fn read_object(
         &self,
         id: &Id,
-    ) -> Result<Reader, ReadLooseError> {
+    ) -> Result<ObjectReader, ReadLooseError> {
         let hex = id.to_hex();
         let (dir, file) = object_path_parts(&hex);
         let mut path = self.path.join(dir);
         path.push(file);
 
         match fs_err::File::open(path) {
-            Ok(file) => Ok(ZlibDecoder::new(file)),
+            Ok(file) => Ok(ObjectReader::from_file(None, file)),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Err(ReadLooseError::NotFound),
             Err(err) => Err(err.into()),
         }
@@ -102,8 +101,8 @@ fn object_path_parts(hex: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read as _;
     use std::fs::{create_dir, metadata};
-    use std::io::Read;
 
     use proptest::{arbitrary::any, collection::vec, prop_assert_eq, proptest};
     use tempdir::TempDir;
@@ -121,7 +120,7 @@ mod tests {
             let id = db.write_object(&bytes).unwrap();
 
             let mut read_bytes = Vec::new();
-            db.read_object(&id).unwrap().read_to_end(&mut read_bytes).unwrap();
+            db.read_object(&id).unwrap().reader().read_to_end(&mut read_bytes).unwrap();
 
             prop_assert_eq!(read_bytes, bytes);
         }

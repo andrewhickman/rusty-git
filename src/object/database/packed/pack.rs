@@ -14,14 +14,16 @@ use thiserror::Error;
 use zerocopy::byteorder::U32;
 use zerocopy::FromBytes;
 
+use crate::object::database::packed::delta::apply_delta;
 use crate::object::database::packed::index::{FindIndexOffsetError, IndexFile};
-use crate::object::{Id, ObjectKind, ParseObjectError, ShortId, ID_LEN};
+use crate::object::database::ObjectReader;
+use crate::object::{Id, ObjectHeader, ObjectKind, ParseObjectError, ShortId, ID_LEN};
 use crate::parse;
 
 pub(in crate::object::database::packed) struct PackFile {
     id: Id,
     file: Mutex<parse::Buffer<File>>,
-    cache: DashMap<u64, Bytes>,
+    cache: DashMap<u64, (ObjectHeader, Bytes)>,
     version: PackFileVersion,
     count: u32,
 }
@@ -72,12 +74,6 @@ struct PackFileHeader {
     count: U32<NetworkEndian>,
 }
 
-#[derive(Debug)]
-struct PackObjectHeader {
-    len: usize,
-    kind: ObjectKind,
-}
-
 type Chain = SmallVec<[ChainEntry; 16]>;
 
 #[derive(Debug)]
@@ -86,8 +82,7 @@ struct ChainEntry {
     key: u64,
     // The offset of the object data, following the header
     offset: u64,
-    len: usize,
-    kind: ObjectKind,
+    header: ObjectHeader,
 }
 
 impl PackFile {
@@ -120,32 +115,39 @@ impl PackFile {
         })
     }
 
-    pub fn read_object(&self, index: &IndexFile, offset: u64) -> Result<Bytes, ReadPackFileError> {
-        if let Some(cached_object) = self.cache.get(&offset) {
-            return Ok(cached_object.clone());
+    pub fn read_object(
+        &self,
+        index: &IndexFile,
+        offset: u64,
+    ) -> Result<ObjectReader, ReadPackFileError> {
+        let (chain, mut header, mut base) = self.find_chain(index, offset)?;
+        for entry in chain {
+            let (new_header, new_base) = self.apply_delta(base, entry)?;
+            header = new_header;
+            base = new_base;
         }
 
-        let (chain, base) = self.chain(index, offset)?;
-
-        todo!()
+        Ok(ObjectReader::from_bytes(header, base))
     }
 
     pub fn count(&self) -> u32 {
         self.count
     }
 
-    fn chain(
+    fn find_chain(
         &self,
         index: &IndexFile,
         mut offset: u64,
-    ) -> Result<(Chain, Bytes), ReadPackFileError> {
+    ) -> Result<(Chain, ObjectHeader, Bytes), ReadPackFileError> {
         let mut chain = Chain::new();
 
         let mut buffer = self.file.lock().unwrap();
 
         loop {
             let cache_entry = match self.cache.entry(offset) {
-                DashMapEntry::Occupied(entry) => return Ok((chain, entry.get().clone())),
+                DashMapEntry::Occupied(entry) => {
+                    return Ok((chain, entry.get().0, entry.get().1.clone()))
+                }
                 DashMapEntry::Vacant(entry) => entry,
             };
 
@@ -166,17 +168,17 @@ impl PackFile {
                     offset
                 }
                 _ => {
-                    let base = buffer.read_to_end_by_ref(header.len)?;
-                    cache_entry.insert(base.clone());
-                    return Ok((chain, base));
+                    let base = buffer.read_exact(header.len)?;
+                    let base = buffer.take_buffer(base);
+                    cache_entry.insert((header, base.clone()));
+                    return Ok((chain, header, base));
                 }
             };
 
             chain.push(ChainEntry {
                 key: offset,
                 offset: offset + buffer.pos() as u64,
-                len: header.len,
-                kind: header.kind,
+                header,
             });
 
             if base_offset == offset {
@@ -184,6 +186,24 @@ impl PackFile {
             }
             offset = base_offset;
         }
+    }
+
+    fn apply_delta(
+        &self,
+        base: Bytes,
+        delta: ChainEntry,
+    ) -> Result<(ObjectHeader, Bytes), ReadPackFileError> {
+        let mut buffer = self.file.lock().unwrap();
+
+        buffer.seek(SeekFrom::Start(delta.offset))?;
+        let parser = buffer.read_exact_as_parser(delta.header.len)?;
+
+        let result = apply_delta(&base, parser);
+
+        Ok(self
+            .cache
+            .insert(delta.key, result.clone())
+            .unwrap_or(result))
     }
 
     pub fn id(&self) -> Id {
@@ -195,8 +215,8 @@ impl PackFileHeader {
     const LEN: usize = size_of::<PackFileHeader>();
 }
 
-impl PackObjectHeader {
-    const MAX_LEN: usize = 1 + (size_of::<usize>() * 8 - 4) / 7 + 1;
+impl ObjectHeader {
+    const MAX_PACKED_LEN: usize = 1 + (size_of::<usize>() * 8 - 4) / 7 + 1;
     const MAX_DELTA_OFFSET_LEN: usize = (size_of::<u64>() * 8) / 7 + 1;
 }
 
@@ -207,9 +227,9 @@ impl<R: Read> parse::Buffer<R> {
         Ok(*parser.parse_struct::<PackFileHeader>()?)
     }
 
-    fn read_pack_object_header(&mut self) -> Result<PackObjectHeader, ReadPackFileError> {
+    fn read_pack_object_header(&mut self) -> Result<ObjectHeader, ReadPackFileError> {
         let range = self
-            .read_until(PackObjectHeader::MAX_LEN, |slice| {
+            .read_until(ObjectHeader::MAX_PACKED_LEN, |slice| {
                 slice
                     .iter()
                     .position(|&byte| byte & 0b1000_0000 == 0)
@@ -239,12 +259,12 @@ impl<R: Read> parse::Buffer<R> {
             shift += 7;
         }
 
-        Ok(PackObjectHeader { len, kind })
+        Ok(ObjectHeader { len, kind })
     }
 
     fn read_delta_offset(&mut self) -> Result<u64, ReadPackFileError> {
         let range = self
-            .read_until(PackObjectHeader::MAX_DELTA_OFFSET_LEN, |slice| {
+            .read_until(ObjectHeader::MAX_DELTA_OFFSET_LEN, |slice| {
                 slice
                     .iter()
                     .position(|&byte| byte & 0b1000_0000 == 0)
@@ -288,7 +308,7 @@ mod tests {
     #[test]
     fn pack_object_header_max_len() {
         let max_len_header = b"\x9F\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x0F";
-        assert_eq!(max_len_header.len(), PackObjectHeader::MAX_LEN);
+        assert_eq!(max_len_header.len(), ObjectHeader::MAX_PACKED_LEN);
         let mut buffer = parse::Buffer::new(io::Cursor::new(B(max_len_header)));
         let parsed_header = buffer.read_pack_object_header().unwrap();
         assert_eq!(parsed_header.kind, ObjectKind::Commit);
@@ -298,7 +318,7 @@ mod tests {
     #[test]
     fn pack_object_header_max_delta_offset_len() {
         let max_len_header = b"\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF\x7F";
-        assert_eq!(max_len_header.len(), PackObjectHeader::MAX_DELTA_OFFSET_LEN);
+        assert_eq!(max_len_header.len(), ObjectHeader::MAX_DELTA_OFFSET_LEN);
         let mut buffer = parse::Buffer::new(io::Cursor::new(B(max_len_header)));
         assert_eq!(buffer.read_delta_offset().unwrap(), u64::MAX);
     }

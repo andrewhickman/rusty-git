@@ -1,7 +1,9 @@
 mod loose;
 mod packed;
+mod reader;
 
-use std::io;
+pub use self::reader::ObjectReader;
+
 use std::path::Path;
 
 use thiserror::Error;
@@ -9,8 +11,6 @@ use thiserror::Error;
 use self::loose::{LooseObjectDatabase, ReadLooseError, WriteLooseError};
 use self::packed::{PackedObjectDatabase, ReadPackedError};
 use crate::object::{Id, Object, ReadObjectError, ShortId};
-
-type Reader = flate2::read::ZlibDecoder<fs_err::File>;
 
 #[derive(Debug)]
 pub struct ObjectDatabase {
@@ -51,13 +51,13 @@ impl ObjectDatabase {
     }
 
     pub fn parse_object(&self, id: Id) -> Result<Object, ReadObjectError> {
-        match Object::from_reader(id, self.read_object(id)?) {
-            Ok(object) => Ok(object),
+        match self.read_object(id)?.parse() {
+            Ok(data) => Ok(Object { id, data }),
             Err(err) => Err(ReadObjectError::new(id, err)),
         }
     }
 
-    pub fn read_object(&self, id: Id) -> Result<impl io::Read, ReadObjectError> {
+    pub fn read_object(&self, id: Id) -> Result<ObjectReader, ReadObjectError> {
         match self.packed.read_object(&ShortId::from(id)) {
             Ok(reader) => return Ok(reader),
             Err(ReadPackedError::NotFound) => (),

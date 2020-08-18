@@ -1,3 +1,4 @@
+mod delta;
 mod index;
 mod pack;
 
@@ -10,7 +11,7 @@ use dashmap::DashMap;
 
 use self::index::{FindIndexOffsetError, IndexFile, ReadIndexFileError};
 use self::pack::{PackFile, ReadPackFileError};
-use crate::object::database::Reader;
+use crate::object::database::ObjectReader;
 use crate::object::ShortId;
 use thiserror::Error;
 
@@ -80,14 +81,14 @@ impl PackedObjectDatabase {
     pub(in crate::object::database) fn read_object(
         &self,
         short_id: &ShortId,
-    ) -> Result<Reader, ReadPackedError> {
+    ) -> Result<ObjectReader, ReadPackedError> {
         match self.try_read_object(short_id) {
             Err(ReadPackedError::NotFound) if self.refresh()? => self.try_read_object(short_id),
             result => result,
         }
     }
 
-    fn try_read_object(&self, short_id: &ShortId) -> Result<Reader, ReadPackedError> {
+    fn try_read_object(&self, short_id: &ShortId) -> Result<ObjectReader, ReadPackedError> {
         let mut result = None;
         let mut found_id = None;
         for entry in self.packs.iter() {
@@ -112,7 +113,7 @@ impl PackedObjectDatabase {
 
         match result {
             Some((entry, offset)) => match entry.pack.read_object(&entry.index, offset) {
-                Ok(reader) => Ok(todo!()),
+                Ok(reader) => Ok(reader),
                 Err(err) => Err(ReadPackedError::ReadEntry(ReadEntryError {
                     name: entry.name.clone(),
                     kind: ReadEntryErrorKind::ReadPackFile(err),

@@ -39,6 +39,12 @@ impl<R: Read> Buffer<R> {
         self.pos
     }
 
+    /// Empty the internal buffer and return it
+    pub fn take_buffer(&mut self, range: Range<usize>) -> Bytes {
+        self.pos = 0;
+        mem::take(&mut self.buffer).freeze().slice(range)
+    }
+
     /// Create a parser for the given range of bytes.
     pub fn parser<I>(&self, range: I) -> Parser<&[u8]>
     where
@@ -133,13 +139,6 @@ impl<R: Read> Buffer<R> {
     /// buffer containing its entire contents. If the total number of
     /// bytes read is not `size`, returns an error.
     pub fn read_to_end(mut self, size: usize) -> Result<Bytes, Error> {
-        self.read_to_end_by_ref(size)
-    }
-
-    /// Read from the reader until the end and close it, returning a
-    /// buffer containing its entire contents. If the total number of
-    /// bytes read is not `size`, returns an error.
-    pub fn read_to_end_by_ref(&mut self, size: usize) -> Result<Bytes, Error> {
         self.read_exact(size)?;
 
         // Read::read_to_end will grow the buffer unnecessarily for the
@@ -154,9 +153,7 @@ impl<R: Read> Buffer<R> {
             }
         }
 
-        let buffer = mem::take(&mut self.buffer);
-        self.pos = 0;
-        Ok(buffer.freeze())
+        Ok(self.buffer.freeze())
     }
 
     /// Reads up to the byte at `end`, starting from `self.pos`, from the reader.

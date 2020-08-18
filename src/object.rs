@@ -30,7 +30,7 @@ use self::commit::ParseCommitError;
 use self::parse::ParseObjectError;
 use self::tag::ParseTagError;
 use self::tree::ParseTreeError;
-use crate::parse::{Buffer, Parser};
+use crate::parse::Parser;
 
 pub const ID_LEN: usize = 20;
 pub const ID_HEX_LEN: usize = ID_LEN * 2;
@@ -72,6 +72,12 @@ pub struct Object {
     data: ObjectData,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ObjectHeader {
+    kind: ObjectKind,
+    len: usize,
+}
+
 /// An error when reading an object from the database.
 #[derive(Debug)]
 pub struct ReadObjectError {
@@ -96,20 +102,7 @@ pub enum ParseIdError {
     Hex(#[from] hex::FromHexError),
 }
 
-impl ObjectData {
-    fn from_reader<R: io::Read>(reader: R) -> Result<Self, ParseObjectError> {
-        Buffer::new(reader).read_object()
-    }
-}
-
 impl Object {
-    fn from_reader<R: io::Read>(id: Id, reader: R) -> Result<Self, ParseObjectError> {
-        Ok(Object {
-            data: ObjectData::from_reader(reader)?,
-            id,
-        })
-    }
-
     pub fn id(&self) -> &Id {
         &self.id
     }
