@@ -113,7 +113,7 @@ where
         let mut parser = self.parser(range);
 
         let mut len = 0;
-        let mut shift = 4;
+        let mut shift = 0;
         while parser.remaining() != 0 {
             let byte = parser.parse_byte()?;
             len |= usize::from(byte & 0b0111_1111)
@@ -156,6 +156,9 @@ where
             }
             if intersects(cmd, 0b0100_0000) {
                 len |= u64::from(self.read_byte()?) << 16;
+            }
+            if len == 0 {
+                len = 0x1_0000;
             }
 
             Ok(Some(Command::CopyFromBase {

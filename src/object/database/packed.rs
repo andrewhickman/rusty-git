@@ -53,9 +53,9 @@ pub(in crate::object) struct ReadEntryError {
 #[derive(Debug, Error)]
 enum ReadEntryErrorKind {
     #[error("failed to read the pack index file")]
-    ReadIndexFile(ReadIndexFileError),
+    ReadIndexFile(#[source] ReadIndexFileError),
     #[error("failed to read the pack file")]
-    ReadPackFile(ReadPackFileError),
+    ReadPackFile(#[source] ReadPackFileError),
     #[error("the pack index file and pack file have a different number of entries")]
     CountMismatch,
     #[error("the pack index file and pack file have a different id")]
