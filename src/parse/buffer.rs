@@ -1,9 +1,10 @@
 use std::io::{self, Read, Seek, SeekFrom};
 use std::mem;
-use std::ops::Range;
+use std::ops::{Index, Range};
 use std::slice::SliceIndex;
 
 use bytes::{Bytes, BytesMut};
+use flate2::read::ZlibDecoder;
 use memchr::memchr;
 
 use crate::object::{Id, ID_LEN};
@@ -39,10 +40,18 @@ impl<R: Read> Buffer<R> {
         self.pos
     }
 
-    /// Empty the internal buffer and return it
+    /// Empty the internal buffer and return it.
+    ///
+    /// The position of the reader is unspecified after this operation.
     pub fn take_buffer(&mut self, range: Range<usize>) -> Bytes {
         self.pos = 0;
         mem::take(&mut self.buffer).freeze().slice(range)
+    }
+
+    /// Clear the internal buffer
+    pub fn clear_buffer(&mut self) {
+        self.pos = 0;
+        self.buffer.clear();
     }
 
     /// Create a parser for the given range of bytes.
@@ -50,7 +59,18 @@ impl<R: Read> Buffer<R> {
     where
         I: SliceIndex<[u8], Output = [u8]>,
     {
-        Parser::new(&self.buffer[range])
+        Parser::new(&self[range])
+    }
+
+    /// Return a buffer that decompresses exactly `compressed_size` bytes from this buffer.
+    pub fn decompress_exact<'a>(
+        &'a mut self,
+        compressed_size: usize,
+    ) -> Buffer<ZlibDecoder<impl Read + 'a>> {
+        debug_assert_eq!(self.pos, self.buffer.len()); // Ensure there is no buffered data
+
+        let reader = ZlibDecoder::new(self.reader.by_ref().take(compressed_size as u64));
+        Buffer::new(reader)
     }
 
     /// Read an exact number of bytes and create a parser.
@@ -192,6 +212,17 @@ impl<R: Seek> Seek for Buffer<R> {
         self.buffer.clear();
         self.pos = 0;
         self.reader.seek(pos)
+    }
+}
+
+impl<R, I> Index<I> for Buffer<R>
+where
+    I: SliceIndex<[u8]>,
+{
+    type Output = I::Output;
+
+    fn index(&self, idx: I) -> &Self::Output {
+        &self.buffer.as_ref()[idx]
     }
 }
 

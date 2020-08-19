@@ -14,7 +14,7 @@ use thiserror::Error;
 use zerocopy::byteorder::U32;
 use zerocopy::FromBytes;
 
-use crate::object::database::packed::delta::apply_delta;
+use crate::object::database::packed::delta::{apply_delta, DeltaError};
 use crate::object::database::packed::index::{FindIndexOffsetError, IndexFile};
 use crate::object::database::ObjectReader;
 use crate::object::{Id, ObjectHeader, ObjectKind, ParseObjectError, ShortId, ID_LEN};
@@ -47,6 +47,12 @@ pub(in crate::object::database::packed) enum ReadPackFileError {
         #[from]
         #[source]
         ParseObjectError,
+    ),
+    #[error("failed to apply a delta")]
+    ParseDeltaError(
+        #[from]
+        #[source]
+        DeltaError,
     ),
     #[error("{0}")]
     Other(&'static str),
@@ -196,9 +202,8 @@ impl PackFile {
         let mut buffer = self.file.lock().unwrap();
 
         buffer.seek(SeekFrom::Start(delta.offset))?;
-        let parser = buffer.read_exact_as_parser(delta.header.len)?;
 
-        let result = apply_delta(&base, parser);
+        let result = apply_delta(delta.header.kind, &base, &mut buffer.decompress_exact(delta.header.len))?;
 
         Ok(self
             .cache
@@ -253,7 +258,7 @@ impl<R: Read> parse::Buffer<R> {
         let mut shift = 4;
         while parser.remaining() != 0 {
             byte = parser.parse_byte()?;
-            len += usize::from(byte & 0b0111_1111)
+            len |= usize::from(byte & 0b0111_1111)
                 .checked_shl(shift)
                 .ok_or(ReadPackFileError::Other("invalid object size"))?;
             shift += 7;
@@ -276,9 +281,7 @@ impl<R: Read> parse::Buffer<R> {
         let mut offset: u64 = 0;
         while parser.remaining() != 0 {
             let byte = parser.parse_byte()?;
-            offset = offset
-                .checked_shl(7)
-                .ok_or(ReadPackFileError::Other("invalid delta offset"))?;
+            offset <<= 7;
             offset += u64::from(byte & 0b0111_1111);
         }
 

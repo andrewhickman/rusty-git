@@ -101,8 +101,8 @@ fn object_path_parts(hex: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read as _;
     use std::fs::{create_dir, metadata};
+    use std::io::Read as _;
 
     use proptest::{arbitrary::any, collection::vec, prop_assert_eq, proptest};
     use tempdir::TempDir;

@@ -5,7 +5,7 @@ use bytes::Bytes;
 use flate2::bufread::ZlibDecoder;
 
 use crate::object::parse::ParseObjectError;
-use crate::object::{ObjectHeader, ObjectData};
+use crate::object::{ObjectData, ObjectHeader};
 use crate::parse;
 
 pub struct ObjectReader {
@@ -19,14 +19,20 @@ enum ReaderKind {
 }
 
 impl ObjectReader {
-    pub(in crate::object) fn from_file(header: impl Into<Option<ObjectHeader>>, file: fs_err::File) -> Self {
+    pub(in crate::object) fn from_file(
+        header: impl Into<Option<ObjectHeader>>,
+        file: fs_err::File,
+    ) -> Self {
         ObjectReader {
             header: header.into(),
             reader: ZlibDecoder::new(ReaderKind::File(BufReader::new(file))),
         }
     }
 
-    pub(in crate::object) fn from_bytes(header: impl Into<Option<ObjectHeader>>, bytes: Bytes) -> Self {
+    pub(in crate::object) fn from_bytes(
+        header: impl Into<Option<ObjectHeader>>,
+        bytes: Bytes,
+    ) -> Self {
         ObjectReader {
             header: header.into(),
             reader: ZlibDecoder::new(ReaderKind::Bytes(bytes.reader())),
